@@ -393,6 +393,9 @@ function initSchema(db: SqlDatabase) {
   ensureColumn("user_settings", "instagram_access_token", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "instagram_api_version", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "instagram_login_method", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "instagram_token_expires_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "meta_app_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "meta_app_secret", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "instagram_auto_publish", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("user_settings", "instagram_share_to_feed", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(
@@ -400,6 +403,9 @@ function initSchema(db: SqlDatabase) {
     "instagram_hashtags",
     "TEXT NOT NULL DEFAULT '#gaming #gamingclips #reels #clipxai'"
   );
+  // 'builtin' = serve signed links from this app (no bucket required)
+  ensureColumn("user_settings", "storage_mode", "TEXT NOT NULL DEFAULT 'builtin'");
+  ensureColumn("user_settings", "public_base_url", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "storage_endpoint", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "storage_region", "TEXT NOT NULL DEFAULT 'auto'");
   ensureColumn("user_settings", "storage_bucket", "TEXT NOT NULL DEFAULT ''");
@@ -1217,11 +1223,18 @@ export interface SocialSettings {
   instagramUserId: string;
   /** Which official Meta login path issued the token. */
   instagramLoginMethod: InstagramLoginMethod;
+  /** ISO timestamp, empty when unknown (manually pasted token). */
+  instagramTokenExpiresAt: string;
+  /** Meta app credentials enable the one-click "Connect Instagram" button. */
+  metaAppId: string;
+  metaAppSecretConfigured: boolean;
   instagramApiVersion: string;
   instagramAutoPublish: boolean;
   instagramShareToFeed: boolean;
   instagramHashtags: string;
   instagramConfigured: boolean;
+  storageMode: "builtin" | "s3";
+  publicBaseUrl: string;
   storageEndpoint: string;
   storageRegion: string;
   storageBucket: string;
@@ -1235,6 +1248,7 @@ export interface SocialSettings {
 export interface SocialSettingsWithSecrets extends SocialSettings {
   rawInstagramToken: string;
   rawStorageSecret: string;
+  rawMetaAppSecret: string;
 }
 
 function socialDefaults(userId: string) {
@@ -1243,9 +1257,14 @@ function socialDefaults(userId: string) {
     instagram_access_token: "",
     instagram_api_version: "",
     instagram_login_method: "",
+    instagram_token_expires_at: "",
+    meta_app_id: "",
+    meta_app_secret: "",
     instagram_auto_publish: 0,
     instagram_share_to_feed: 1,
     instagram_hashtags: "#gaming #gamingclips #reels #clipxai",
+    storage_mode: "builtin",
+    public_base_url: "",
     storage_endpoint: "",
     storage_region: "auto",
     storage_bucket: "",
@@ -1281,6 +1300,9 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
   };
 
   const instagramUserId = pick("instagram_user_id", "IG_USER_ID");
+  const storageMode: "builtin" | "s3" =
+    String(row.storage_mode ?? "builtin").toLowerCase() === "s3" ? "s3" : "builtin";
+  const publicBaseUrl = pick("public_base_url", "PUBLIC_BASE_URL");
   const instagramToken = pick("instagram_access_token", "IG_ACCESS_TOKEN");
   const storageEndpoint = pick("storage_endpoint", "S3_ENDPOINT");
   const storageBucket = pick("storage_bucket", "S3_BUCKET");
@@ -1296,6 +1318,11 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
     userId,
     instagramUserId,
     instagramLoginMethod: loginMethod,
+    instagramTokenExpiresAt: String(row.instagram_token_expires_at ?? ""),
+    metaAppId: pick("meta_app_id", "IG_APP_ID"),
+    metaAppSecretConfigured: Boolean(
+      pick("meta_app_secret", "IG_APP_SECRET")
+    ),
     instagramApiVersion: pick("instagram_api_version", "IG_GRAPH_API_VERSION"),
     instagramAutoPublish: Boolean(Number(row.instagram_auto_publish ?? 0)),
     instagramShareToFeed:
@@ -1306,6 +1333,8 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
       row.instagram_hashtags ?? "#gaming #gamingclips #reels #clipxai"
     ),
     instagramConfigured: Boolean(instagramUserId && instagramToken),
+    storageMode,
+    publicBaseUrl,
     storageEndpoint,
     storageRegion: pick("storage_region", "S3_REGION") || "auto",
     storageBucket,
@@ -1316,17 +1345,26 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
       row.storage_force_path_style === undefined
         ? true
         : Boolean(Number(row.storage_force_path_style)),
-    storageConfigured: Boolean(
-      storageEndpoint && storageBucket && storageAccessKeyId && storageSecret
-    ),
+    // "Configured" depends on the hosting mode: the built-in host only needs a
+    // public base URL, a bucket needs the full credential set.
+    storageConfigured:
+      storageMode === "builtin"
+        ? Boolean(publicBaseUrl)
+        : Boolean(storageEndpoint && storageBucket && storageAccessKeyId && storageSecret),
     rawInstagramToken: instagramToken,
     rawStorageSecret: storageSecret,
+    rawMetaAppSecret: pick("meta_app_secret", "IG_APP_SECRET"),
   };
 }
 
 export interface SocialSettingsPatch {
   instagramUserId?: string;
   instagramLoginMethod?: InstagramLoginMethod;
+  instagramTokenExpiresAt?: string;
+  metaAppId?: string;
+  metaAppSecret?: string;
+  storageMode?: "builtin" | "s3";
+  publicBaseUrl?: string;
   instagramAccessToken?: string;
   instagramApiVersion?: string;
   instagramAutoPublish?: boolean;
@@ -1342,7 +1380,7 @@ export interface SocialSettingsPatch {
   storageForcePathStyle?: boolean;
 }
 
-const MASK = "••••••••";
+const MASK: string = "••••••••";
 
 export function updateSocialSettings(
   userId: string,
@@ -1385,6 +1423,23 @@ export function updateSocialSettings(
       patch.instagramLoginMethod !== undefined
         ? patch.instagramLoginMethod
         : current.instagramLoginMethod,
+    instagramTokenExpiresAt:
+      patch.instagramTokenExpiresAt !== undefined
+        ? patch.instagramTokenExpiresAt.trim()
+        : current.instagramTokenExpiresAt,
+    metaAppId:
+      patch.metaAppId !== undefined ? patch.metaAppId.trim() : current.metaAppId,
+    metaAppSecret:
+      patch.metaAppSecret !== undefined && patch.metaAppSecret !== MASK
+        ? patch.metaAppSecret.trim()
+        : patch.metaAppSecret === ""
+        ? ""
+        : current.rawMetaAppSecret,
+    storageMode: patch.storageMode ?? current.storageMode,
+    publicBaseUrl:
+      patch.publicBaseUrl !== undefined
+        ? patch.publicBaseUrl.trim().replace(/\/+$/, "")
+        : current.publicBaseUrl,
     instagramApiVersion:
       patch.instagramApiVersion !== undefined
         ? patch.instagramApiVersion.trim()
@@ -1429,7 +1484,9 @@ export function updateSocialSettings(
   db.prepare(
     `UPDATE user_settings SET
        instagram_user_id = ?, instagram_access_token = ?, instagram_api_version = ?,
-       instagram_login_method = ?,
+       instagram_login_method = ?, instagram_token_expires_at = ?,
+       meta_app_id = ?, meta_app_secret = ?,
+       storage_mode = ?, public_base_url = ?,
        instagram_auto_publish = ?, instagram_share_to_feed = ?, instagram_hashtags = ?,
        storage_endpoint = ?, storage_region = ?, storage_bucket = ?,
        storage_access_key_id = ?, storage_secret_access_key = ?, storage_prefix = ?,
@@ -1440,6 +1497,11 @@ export function updateSocialSettings(
     next.instagramAccessToken,
     next.instagramApiVersion,
     next.instagramLoginMethod,
+    next.instagramTokenExpiresAt,
+    next.metaAppId,
+    next.metaAppSecret,
+    next.storageMode,
+    next.publicBaseUrl,
     next.instagramAutoPublish ? 1 : 0,
     next.instagramShareToFeed ? 1 : 0,
     next.instagramHashtags,

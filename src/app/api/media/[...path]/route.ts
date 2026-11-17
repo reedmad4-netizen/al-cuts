@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
+import { fileStream } from "@/lib/file-stream";
 
 export const dynamic = "force-dynamic";
 
@@ -55,10 +55,8 @@ export async function GET(
     }
 
     const chunkSize = end - start + 1;
-    const nodeStream = fs.createReadStream(joined, { start, end });
-    const webStream = Readable.toWeb(nodeStream) as ReadableStream;
 
-    return new NextResponse(webStream, {
+    return new NextResponse(fileStream(joined, { start, end }), {
       status: 206,
       headers: {
         "Content-Range": `bytes ${start}-${end}/${stat.size}`,
@@ -70,9 +68,7 @@ export async function GET(
     });
   }
 
-  const nodeStream = fs.createReadStream(joined);
-  const webStream = Readable.toWeb(nodeStream) as ReadableStream;
-  return new NextResponse(webStream, {
+  return new NextResponse(fileStream(joined), {
     status: 200,
     headers: {
       "Accept-Ranges": "bytes",

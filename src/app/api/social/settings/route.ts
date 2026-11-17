@@ -12,12 +12,14 @@ function publicShape(userId: string) {
   const {
     rawInstagramToken,
     rawStorageSecret,
+    rawMetaAppSecret,
     ...rest
   } = settings;
   return {
     ...rest,
     instagramAccessToken: rawInstagramToken ? MASK : "",
     storageSecretAccessKey: rawStorageSecret ? MASK : "",
+    metaAppSecret: rawMetaAppSecret ? MASK : "",
     // Surfaced so the UI can explain exactly what is missing.
     instagramReady: rest.instagramConfigured,
     storageReady: rest.storageConfigured,
@@ -37,6 +39,11 @@ const UpdateSchema = z.object({
   instagramAccessToken: z.string().max(2048).optional(),
   instagramApiVersion: z.string().max(16).optional(),
   instagramLoginMethod: z.enum(["facebook", "instagram"]).optional(),
+  instagramTokenExpiresAt: z.string().max(40).optional(),
+  metaAppId: z.string().max(64).optional(),
+  metaAppSecret: z.string().max(256).optional(),
+  storageMode: z.enum(["builtin", "s3"]).optional(),
+  publicBaseUrl: z.string().max(300).optional(),
   instagramAutoPublish: z.boolean().optional(),
   instagramShareToFeed: z.boolean().optional(),
   instagramHashtags: z.string().max(2000).optional(),
@@ -64,6 +71,22 @@ export async function PUT(req: Request) {
     );
   }
 
-  updateSocialSettings(user.id, parsed.data);
+  // Saving from the browser is the most reliable moment to learn this app's
+  // public origin — the UI sends it explicitly, otherwise the request origin is
+  // used. Never overwrite an explicitly configured URL.
+  const payload = { ...parsed.data };
+  if (payload.publicBaseUrl === undefined) {
+    const current = getSocialSettings(user.id);
+    if (!current.publicBaseUrl) {
+      const forwardedHost = req.headers.get("x-forwarded-host");
+      const forwardedProto = req.headers.get("x-forwarded-proto");
+      const origin = forwardedHost
+        ? `${forwardedProto || "https"}://${forwardedHost}`
+        : new URL(req.url).origin;
+      payload.publicBaseUrl = origin;
+    }
+  }
+
+  updateSocialSettings(user.id, payload);
   return NextResponse.json({ settings: publicShape(user.id) });
 }

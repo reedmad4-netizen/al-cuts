@@ -246,6 +246,15 @@ alter table public.user_settings add column if not exists instagram_login_method
 alter table public.user_settings add column if not exists instagram_auto_publish integer not null default 0;
 alter table public.user_settings add column if not exists instagram_share_to_feed integer not null default 1;
 alter table public.user_settings add column if not exists instagram_hashtags text not null default '#gaming #gamingclips #reels #clipxai';
+alter table public.user_settings add column if not exists instagram_token_expires_at text not null default '';
+alter table public.user_settings add column if not exists meta_app_id text not null default '';
+alter table public.user_settings add column if not exists meta_app_secret text not null default '';
+
+-- 'builtin' = sign URLs served by this app (no bucket), 's3' = upload to a bucket
+alter table public.user_settings add column if not exists storage_mode text not null default 'builtin'
+  check (storage_mode in ('builtin', 's3'));
+alter table public.user_settings add column if not exists public_base_url text not null default '';
+
 alter table public.user_settings add column if not exists storage_endpoint text not null default '';
 alter table public.user_settings add column if not exists storage_region text not null default 'auto';
 alter table public.user_settings add column if not exists storage_bucket text not null default '';

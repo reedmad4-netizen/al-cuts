@@ -32,6 +32,14 @@ let cachedSecret: Uint8Array | null = null;
  * (git-ignored, mode 0600) so the zero-config demo keeps working while every
  * deployment still gets a unique, unguessable key.
  */
+/**
+ * The raw server secret, also used to sign one-off media URLs.
+ * Same precedence as the session key: env → data/auth-secret → fresh random.
+ */
+export function getServerSecret(): string {
+  return new TextDecoder().decode(getJwtSecret());
+}
+
 function getJwtSecret(): Uint8Array {
   if (cachedSecret) return cachedSecret;
 

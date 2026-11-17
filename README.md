@@ -142,125 +142,76 @@ Once connected:
 
 ## Automatic Instagram Reels Upload (optional)
 
-CLIPX AI can push every generated **9:16 Short** straight to Instagram Reels —
-manually with one click, or fully hands-free.
+Every generated **9:16 Short** can go straight to Instagram Reels — with one
+click, or fully hands-free.
 
-> **Step-by-step, from zero:** see [`GETTING-STARTED.md`](./GETTING-STARTED.md)
-> for a beginner-friendly walkthrough (run the app → convert the account →
-> create the Meta app → free bucket → connect → publish).
+**Two-minute setup:** see [`GETTING-STARTED.md`](./GETTING-STARTED.md). Short
+version:
 
-> **Account requirement:** Instagram's publishing API works **only** for
-> **Business / Creator** (professional) accounts. A Facebook Page is required by
-> the *Facebook Login* path but **not** by the newer *Instagram Login* path —
-> CLIPX AI supports both (`Login path` dropdown on the Publishing page). Personal accounts
-> have no supported publishing API. The unofficial private-API workarounds
-> violate Instagram's Terms of Use and can get an account banned, so CLIPX AI
-> deliberately does not implement them — instead the Publishing page tells you
-> exactly what to change if it detects a personal account.
+1. Make the Instagram account **Creator** or **Business** (Settings → Account
+   type in the Instagram app; personal accounts cannot post via any API).
+2. Open **Publishing → Connect Instagram**, paste your Meta app id + secret once
+   under *Advanced*, and approve.
+3. Press **Test connection** and **Test hosting**. Done.
 
-### Why a bucket is involved
+You do not need a bucket: the app serves each video itself through a signed URL
+that expires in 24 h. An S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze
+B2, MinIO) is available as an option on the same page.
 
-Instagram never accepts a file upload: it **downloads the video from a public
-URL**. CLIPX AI therefore uploads the rendered Short to your own S3-compatible
-bucket and hands Instagram a link.
+### What happens under the hood
 
-### 1. Prepare the Instagram account
-
-1. Convert the account to **Creator** or **Business** (Instagram app →
-   Settings → Account type).
-2. Create a Meta app at [developers.facebook.com](https://developers.facebook.com)
-   and add the **Instagram** product. There are two official doors:
-
-   | Path | Host | Facebook Page | Scopes |
-   |---|---|---|---|
-   | **Instagram Login** (simplest) | `graph.instagram.com` | not required | `instagram_business_basic`, `instagram_business_content_publish` |
-   | **Facebook Login** | `graph.facebook.com` | required | `instagram_basic`, `instagram_content_publish` |
-
-3. Generate the token from the app dashboard and copy the **Instagram account id**
-   shown next to it. For the Facebook Login path the id comes from
-   `GET /{page-id}?fields=instagram_business_account`.
-4. Exchange the short-lived token for a **long-lived** one (Instagram Login:
-   `grant_type=ig_exchange_token`; Facebook Login: `grant_type=fb_exchange_token`).
-   They last ~60 days.
-5. Tell the app which door you used — the **Login path** dropdown on the
-   Publishing page (or `IG_LOGIN_METHOD=instagram`).
-
-### 2. Prepare the bucket
-
-Works with AWS S3, Cloudflare R2, Backblaze B2 or MinIO. Either make the bucket
-publicly readable (and set a CDN base URL) or leave that field blank — CLIPX AI
-then issues **presigned links valid for 24 h**.
-
-### 3. Configure CLIPX AI
-
-Open **Publishing** in the sidebar and fill in:
-
-| Field | Example |
-|---|---|
-| Login path | `Instagram Login` or `Facebook Login` |
-| Instagram user ID | `17841400000000000` |
-| Long-lived access token | `EAAG…` (stored server-side, never returned to the browser) |
-| Hashtags | `#gaming #gamingclips #reels` |
-| Endpoint | `https://<account>.r2.cloudflarestorage.com` |
-| Region | `auto` for R2, e.g. `us-east-1` for AWS |
-| Bucket / prefix | `clipx-clips` / `clipx` |
-| Access key id + secret | your bucket credentials |
-
-Press **Verify connection** (checkout the account type and remaining daily
-quota) and **Test bucket** (uploads a tiny object and downloads it back through
-the public URL). Both must pass before publishing.
-
-Prefer environment variables on a shared deployment:
-
-```bash
-IG_USER_ID=17841400000000000
-IG_ACCESS_TOKEN=EAAG...
-S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
-S3_REGION=auto
-S3_BUCKET=clipx-clips
-S3_ACCESS_KEY_ID=...
-S3_SECRET_ACCESS_KEY=...
-S3_PREFIX=clipx
-S3_PUBLIC_BASE_URL=          # optional CDN / public bucket
+```
+render 9:16 Short
+  → validate (MP4 · H.264/HEVC · AAC · 3–900 s · ≤1 GB)
+  → host it: signed https://<your-app>/api/public/short/<token>   (or your bucket)
+  → POST /{ig-user-id}/media   media_type=REELS + video_url + caption
+  → poll until FINISHED → POST /media_publish → store permalink
 ```
 
-### 4. Choose how clips are published
+Instagram never accepts file bytes; it downloads from the URL. That is why a
+public address exists at all — and why the app can provide it for you.
 
-- **Manual** (default): the Publishing page lists your Shorts with an editable
-  auto-generated caption and a **Publish to Instagram** button.
-- **Auto-publish**: enable the toggle to publish each new Short the moment it is
-  rendered. Any stream can override the account default (inherit / always /
-  never).
+### Two official login paths, both supported
 
-Captions are generated locally from the clip's own data — title, game, channel,
-AI hype score and trigger reason plus your hashtag set — no extra AI service.
+| Path | Host | Facebook Page | Scopes |
+|---|---|---|---|
+| **Instagram Login** (used by the Connect button) | `graph.instagram.com` | not required | `instagram_business_basic`, `instagram_business_content_publish` |
+| **Facebook Login** (manual token) | `graph.facebook.com` | required | `instagram_basic`, `instagram_content_publish` |
+
+The Connect button performs the OAuth exchange, discovers the account id from
+Meta, and upgrades the one-hour token to a **60-day** one. `Refresh token`
+extends it in place. Tokens and secrets are stored server-side and returned
+masked.
 
 ### Limits and behaviour
 
-- Instagram allows **50 API-published posts per rolling 24 h**; CLIPX AI checks
-  the account quota *and* its own history before publishing.
-- Every video is validated against Reels rules (MP4 · H.264/HEVC · AAC · 3–900 s
-  · ≤1 GB · vertical preferred) **before** anything is uploaded.
-- Publishing state is tracked per clip (`queued → hosting → creating →
-  processing → published/failed`) and streamed to the UI over the WebSocket.
-- Failures are recorded with Meta's error explained in plain language (expired
-  token, missing permission, unreachable URL, rate limit, non-professional
-  account, unsupported video).
-- Only clips you own can be published. Demo sample clips belong to the demo
-  account, so sign in to publish them.
+- ~**50 API-published posts per rolling 24 h**; both Meta's quota and local
+  history are checked before publishing.
+- Videos are validated against Reels rules *before* anything is uploaded.
+- Status is tracked per clip (`queued → hosting → creating → processing →
+  published/failed`) and streamed over the WebSocket.
+- Meta errors are translated (expired token, missing scope, unreachable URL,
+  rate limit, personal account, unsupported video).
+- Only clips you own can be published; the demo sample clip belongs to the demo
+  account.
 
-### Verifying it works without Instagram
-
-The publish pipeline is covered by an offline test harness that stands up a mock
-Graph API and a mock S3 bucket:
+### Verify without Instagram
 
 ```bash
-npm run test:s3        # SigV4 differential test vs the aws4 package
-npm run test:social    # full publish flow + hands-free auto-publish
+npm run test:s3        # SigV4 differential test vs aws4
+npm run test:social    # 34 checks against a mock Meta API + mock bucket
 ```
 
-`test:social` needs the server running with
-`IG_GRAPH_BASE_URL=http://127.0.0.1:3900/graph` and a working FFmpeg.
+`test:social` needs the server started with:
+
+```bash
+IG_GRAPH_BASE_URL=http://127.0.0.1:3900/graph \
+IG_OAUTH_AUTHORIZE_URL=http://127.0.0.1:3900/oauth/authorize \
+IG_OAUTH_TOKEN_URL=http://127.0.0.1:3900/oauth/access_token \
+IG_LONG_LIVED_URL=http://127.0.0.1:3900/access_token \
+IG_REFRESH_URL=http://127.0.0.1:3900/refresh_access_token \
+npm start
+```
 
 ---
 

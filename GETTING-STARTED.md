@@ -1,31 +1,40 @@
-# Getting started — from zero to auto-posting Reels
+# Getting started — Instagram posts in two steps
 
-This is the slow, explicit version. Follow it top to bottom; each part ends with
-something you can check before moving on. Total time: ~15 minutes for a first
-run, ~10 extra minutes to connect Instagram.
+The goal is simple: **Shorts you generate here appear on Instagram by themselves.**
 
-There are five parts:
+There are two setup steps. Everything else is optional.
 
-| Part | What you do | Time |
+| Step | What you do | Time |
 |---|---|---|
-| [1](#part-1--run-the-app-on-your-computer) | Run the app on your computer | 5 min |
-| [2](#part-2--make-your-instagram-account-able-to-post-via-api) | Make your Instagram account API-postable | 2 min |
-| [3](#part-3--create-a-meta-app-and-get-a-token) | Create a Meta app + get a token | 5 min |
-| [4](#part-4--create-a-free-bucket-for-the-video-files) | Create a free bucket for the files | 5 min |
-| [5](#part-5--connect-everything-inside-the-app) | Connect everything in the app | 3 min |
+| [1](#step-1--run-the-app) | Run the app | 5 min |
+| [2](#step-2--connect-instagram) | Click **Connect Instagram** | 2 min |
+| [Optional](#optional-settings-you-may-want) | Hashtags, auto-publish, bucket | 2 min |
+
+You do **not** need a bucket, an S3 account, or to hunt for account IDs. The app
+serves the videos itself and fetches the account ID for you.
 
 ---
 
-## Part 1 — Run the app on your computer
+## Before you start (once)
 
-You need **Node.js 18.18 or newer** ([nodejs.org](https://nodejs.org), pick the
-LTS button). To check what you have:
+1. **Node.js 18.18+** — [nodejs.org](https://nodejs.org), the LTS button. Check:
+   `node -v`.
+2. **Instagram account set to professional.** In the Instagram app: profile →
+   ☰ → *Settings and activity* → *Account type and tools* → **Switch to
+   professional account** → pick **Creator** or **Business**.
+   Personal accounts cannot post through any API — that is Instagram's rule, not
+   the app's.
+3. **A Meta app** (free, 2 minutes):
+   - [developers.facebook.com](https://developers.facebook.com) → **My Apps** →
+     **Create app** → use case **Instagram** → type **Business**.
+   - Open **Instagram → API setup with Instagram login**.
+   - Under **Permissions**, tick `instagram_business_basic` and
+     `instagram_business_content_publish`.
+   - Copy the **App ID** and **App Secret** from *App settings → Basic*.
 
-```bash
-node -v     # must print v18.18.0 or higher (v20 / v22 are best)
-```
+---
 
-Then:
+## Step 1 — Run the app
 
 ```bash
 git clone https://github.com/reedmad4-netizen/al-cuts.git
@@ -35,193 +44,94 @@ npm install
 npm run dev
 ```
 
-`npm install` downloads the app plus optional static FFmpeg binaries. If your
-network blocks those, don't worry — Part 1 ends with a check that tells you.
+Open **http://localhost:3000** → **1-Click Demo Login** (or
+`demo@clipx.ai` / `DemoClipX2026!`).
 
-Open **http://localhost:3000** and sign in with:
-
-- **Email:** `demo@clipx.ai`
-- **Password:** `DemoClipX2026!`
-- or just click **1-Click Demo Login**.
-
-### Check before moving on
-
-In a second terminal:
+Check the media toolchain once:
 
 ```bash
 curl -s localhost:3000/api/health
 ```
 
-You want **`"ok":true`** and **`"ready":true`** inside `media`.
+`"ok":true` and `"media":{"ready":true}` means video capture and rendering work.
+If `ready` is `false`: `npm install --include=optional`, or set `FFMPEG_PATH` /
+`FFPROBE_PATH` to an FFmpeg you already have.
 
-If `media.ready` is `false`, video capture and rendering are switched off. Fix it
-whichever way suits you:
-
-```bash
-npm install --include=optional           # 1. pull the bundled binaries
-# 2. or install FFmpeg yourself and point at it:
-FFMPEG_PATH=/usr/bin/ffmpeg FFPROBE_PATH=/usr/bin/ffprobe npm run dev
-# 3. or (Windows) choco install ffmpeg   /  (macOS) brew install ffmpeg
-```
-
-The app never pretends video works when it doesn't — that's why this check
-exists.
-
-> **Using the live preview in Arena instead?** It is already running on port
-> 3100. Same login, same pages — you can skip Part 1 entirely.
+> In Arena the app is already running on port 3100 — skip this step.
 
 ---
 
-## Part 2 — Make your Instagram account able to post via API
+## Step 2 — Connect Instagram
 
-Instagram only allows **professional** accounts to publish through its API.
-Personal accounts are refused by Meta itself — not by this app.
+1. Sidebar → **Publishing** → **Setup** card → **Connect Instagram**.
+2. If the button says it needs app credentials, open
+   **Advanced — one-click Meta app credentials**, paste the **App ID** and
+   **App Secret** from the Meta dashboard, press **Save**, then press
+   **Connect Instagram** again.
+3. Instagram asks you to approve. Accept — it grants only posting for your own
+   account.
+4. You land back on Publishing with **Instagram connected**.
 
-1. Open Instagram on your phone → **profile → ☰ menu → Settings and activity**.
-2. **Account type and tools → Switch to professional account**.
-3. Pick a category (e.g. *Gamer*), choose **Creator** or **Business**
-   (both work; **Business** is the safer choice if you want the widest API
-   compatibility).
-4. Finish the wizard. If Instagram invites you to connect a Facebook Page, you
-   can do it — but see Part 3: it is **optional** with the Instagram Login path.
+What just happened: the app asked Meta for permission, Meta returned your
+account id automatically, and the app exchanged the one-hour token for a
+**60-day** one. You never typed an id or a token.
 
-### Check before moving on
+5. Press **Test connection** → you should see `@yourhandle`, the account type and
+   the remaining daily posts.
+6. Press **Test hosting** → it downloads a real clip through the app's own URL,
+   exactly as Instagram will.
 
-In the app, open **Publishing**. The Instagram card shows a status line. It will
-say the account is not connected yet — that's expected. The important thing is
-that on Instagram itself, your profile now says *Professional account* under
-Settings.
+Both green means you are done. **Every generated Short now has a
+*Publish to Instagram* button**, and you can switch on hands-free posting.
 
----
+### Make it hands-free
 
-## Part 3 — Create a Meta app and get a token
+On the same page: tick **Auto-publish every generated Short** → **Save**. New
+Shorts post themselves as soon as they render. Individual streams can be set to
+*Always* / *Never* under **Per-stream overrides**.
 
-Meta gives you two official doors. **Pick one.** If you don't have (and don't
-want) a Facebook Page, pick **Instagram Login**.
+### Try it end to end
 
-### Option A — Instagram Login (no Facebook Page needed) ← recommended
-
-1. Go to [developers.facebook.com](https://developers.facebook.com) and log in
-   with the same account you use for Instagram → **My Apps → Create app**.
-2. For "What do you want your app to do?" choose the **Instagram** use case, and
-   if asked for an app type pick **Business**. Name it anything (e.g. `clipx-publisher`).
-3. In the app dashboard, open the **Instagram → API setup with Instagram login**
-   product.
-4. Under **Permissions**, make sure these two are present:
-   - `instagram_business_basic`
-   - `instagram_business_content_publish`
-5. In **Generate access tokens**, click **Add account** / **Generate token**,
-   log in with the Instagram account from Part 2, and approve.
-6. Copy two things from that panel:
-   - the **Instagram account ID** (a 17-digit number like `17841400000000000`)
-   - the **access token** (a long string starting with `IG...` or `EAAG...`)
-
-> The token shown in the dashboard is short-lived. Under the token, click
-> **Exchange for long-lived token** (or call
-> `GET https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=…&access_token=…`).
-> Long-lived tokens last **~60 days**; re-run this when publishing starts failing
-> with "token expired".
-
-### Option B — Facebook Login (needs a Facebook Page)
-
-1. On Instagram: **Settings → Account type and tools → share to Facebook** and
-   connect a Facebook Page you manage to the professional account.
-2. [developers.facebook.com](https://developers.facebook.com) → **My Apps → Create app**
-   → use case **Other** → type **Business**.
-3. Add the **Instagram** product ("API setup with Facebook login").
-4. Required permissions: `instagram_basic` and `instagram_content_publish`
-   (plus `pages_show_list` and `pages_read_engagement` if the dashboard asks).
-5. **Generate access token** → log in → select your Page → approve.
-6. Find the Instagram account ID: open the Graph API Explorer and run
-   `me/accounts` → take a Page `id` → run `{page-id}?fields=instagram_business_account`
-   → the `id` inside is your Instagram user ID.
-7. Exchange the short-lived token for a long-lived one:
-   `GET https://graph.facebook.com/v23.0/oauth/access_token?grant_type=fb_exchange_token&client_id={app-id}&client_secret={app-secret}&fb_exchange_token={short-token}`
-
-### Check before moving on
-
-You should be holding **two strings**: an Instagram account ID and a token. Keep
-them handy for Part 5. Don't paste them into chats or commit them anywhere.
+1. **Monitoring** → open a stream → trigger a capture (the demo sandbox works).
+2. Wait for the Short under **Clips**.
+3. **Publishing** → the Short appears with an editable caption → **Publish to
+   Instagram** (or wait for it to post itself if auto-publish is on).
+4. The status moves *hosting → creating → processing → published*, then a
+   permalink appears. Instagram needs 10–60 s to process a Reel.
 
 ---
 
-## Part 4 — Create a free bucket for the video files
+## Where videos are hosted (default: here)
 
-Why this is needed: Instagram's API **does not accept file uploads**. It fetches
-the video from a URL, so your rendered Short has to live somewhere public-ish
-first. Any S3-compatible storage works.
-
-### Easiest: Cloudflare R2 (free tier, no credit card)
-
-1. Sign up at [dash.cloudflare.com](https://dash.cloudflare.com) → **R2** →
-   **Create bucket**, name it e.g. `clipx-clips`.
-2. Note the **S3 endpoint** shown on the bucket/R2 overview page:
-   `https://<account-id>.r2.cloudflarestorage.com`
-3. **R2 → Manage R2 API Tokens → Create API token** → permission
-   **Object Read & Write** → scope it to this bucket → **Create**.
-4. Copy the **Access Key ID** and **Secret Access Key** (shown once).
-
-### Also fine: AWS S3, Backblaze B2, MinIO, Wasabi
-
-You need the same four values: endpoint, region, bucket, access key + secret.
-For AWS the endpoint is `https://s3.<region>.amazonaws.com` and the region is
-like `us-east-1`. For MinIO it's your own `http(s)://host:9000`.
-
-### Public URL or presigned?
-
-- **Leave `Public base URL` empty** → the app generates **presigned links valid
-  for 24 h**. Easiest, works with private buckets, nothing else to configure.
-- **Fill `Public base URL`** (CDN domain or a public bucket URL) → links never
-  expire. Slightly more robust for slow render→publish gaps.
-
-Don't make a bucket public unless you're comfortable with those files being
-world-readable by URL.
-
----
-
-## Part 5 — Connect everything inside the app
-
-1. Open **http://localhost:3000/publishing** (sidebar → **Publishing**).
-2. **Instagram account** card:
-   - paste the **Instagram user ID** and the **token** from Part 3;
-   - set **Login path** to match what you used: *Facebook Login* or
-     *Instagram Login*;
-   - edit **Hashtags** if you like (they get appended to auto-captions);
-   - leave **Auto-publish** off for now.
-3. **Media hosting** card: paste endpoint, region (`auto` for R2), bucket, access
-   key, secret. Leave prefix `clipx` and the public URL empty unless you set one
-   up.
-4. Click **Save publishing settings**.
-5. Click **Verify connection**. Expected: a green line naming your
-   `@username`, your account type, and the remaining daily posts.
-6. Click **Test bucket**. Expected: a green line saying the object was uploaded
-   and read back.
-
-If either check fails, the message names the cause (wrong ID, expired token,
-personal account, bad endpoint, refused connection) — fix and retry. Nothing is
-posted by these two checks.
-
-### Publish something — the manual path
-
-1. Go to **Monitoring**, open a stream (the demo sandbox works), and trigger a
-   capture, **or** upload a video.
-2. Wait for the clip and its vertical Short to appear under **Clips**.
-3. Back on **Publishing**, the Short shows with an editable caption.
-4. Click **Publish to Instagram**. The status moves through
-   *hosting → creating → processing → published*, and a permalink appears.
-
-Instagram takes 10–60 s to process a Reel. The page updates itself; no refresh
+Instagram never accepts a file upload — it downloads from a URL. The app serves
+each Short itself at a signed link that expires in 24 h, so nothing else is
 needed.
 
-### Publish hands-free
+One catch: **Instagram must be able to reach that URL.** While you are on
+localhost you can test the flow, but Meta cannot download from `localhost`. When
+you deploy (VPS, Render, Fly, Railway, a tunnel…), open **Video hosting** in the
+app once and press **Use current address**, or set `PUBLIC_BASE_URL`; it saves
+the HTTPS address you are browsing from.
 
-1. On **Publishing**, tick **Auto-publish every generated Short** and save.
-2. (Optional) In **Per-stream overrides**, set individual streams to
-   *Always auto-publish* or *Never auto-publish*.
-3. Trigger a capture. When the Short is rendered, it posts by itself.
+Prefer a bucket (many uploads, slow proxy, CDN)? Switch **Video hosting** to
+**S3-compatible bucket** and paste endpoint, region, bucket, access key and
+secret (AWS S3, Cloudflare R2, Backblaze B2, MinIO all work). Then **Test
+hosting**.
 
-That's the whole thing. From here, every Short you generate goes straight to
-Reels.
+---
+
+## Optional settings you may want
+
+| Setting | Where | Default |
+|---|---|---|
+| Hashtags appended to captions | Publishing → caption field | `#gaming #gamingclips #reels #clipxai` |
+| Show Reel in the main feed | Publishing → checkbox | on |
+| Auto-publish on/off | Publishing → checkbox | off |
+| Per-stream override | Publishing → Per-stream overrides | follow account |
+| Token refresh | Publishing → **Refresh token** | auto every ~60 days if you press it |
+
+Edit any caption before posting: the caption box on each clip card is
+pre-filled and saved with the post.
 
 ---
 
@@ -229,11 +139,10 @@ Reels.
 
 | Task | Where |
 |---|---|
-| See what was posted and when | Publishing → **Publishing history** |
-| Fix a caption before posting | Publishing → clip card → edit caption → **Publish** |
-| Re-post something | Publishing → clip card → **Republish Reel** |
-| Pause auto-posting | Publishing → untick **Auto-publish** → save |
-| Rotate the token (every ~60 days) | Part 3 again → paste the new token → save |
+| See what was posted | Publishing → **Publishing history** |
+| Re-post a clip | Publishing → clip card → **Republish Reel** |
+| Pause auto-posting | untick **Auto-publish** → Save |
+| Keep the token alive | **Refresh token** (Instagram Login only) |
 
 ---
 
@@ -241,42 +150,39 @@ Reels.
 
 | Message | Meaning | Fix |
 |---|---|---|
-| *Add your Instagram Business/Creator account ID and a long-lived access token first* | Fields empty | Part 3 + Part 5 |
-| *This is a personal Instagram account* | Meta refuses personal accounts | Part 2 |
-| *Token has expired / invalid OAuth access token* | Short-lived token, or 60 days passed | Exchange for a long-lived token, paste it in |
-| *Missing permission / (#10) application does not have permission* | Scopes not granted on the app | Add `instagram_*_content_publish` in the Meta dashboard, regenerate the token |
-| *Unsupported request / object does not exist* | Wrong Instagram ID, or ID belongs to another app's account | Copy the ID from the same panel that produced the token |
-| *URL unreachable / media download failed* | Bucket not public and no presigned fallback, or wrong endpoint | Click **Test bucket**; check the endpoint starts with `https://` |
-| *Storage upload failed … Connection refused / not resolved* | Endpoint typo, or the host blocks this machine | Fix the endpoint; corporate proxies can also break TLS — the message says which |
-| *Rate limit / quota* | 50 posts in 24 h | Wait, or reduce auto-publishing |
-| *Video does not meet Reels requirements* | Wrong codec/length/size | Use the app's own Shorts — it always renders compliant MP4s |
-| Publishing spins forever at *processing* | Instagram couldn't fetch the video fast enough | Keep presigned links, or use a public bucket/CDN |
+| *Connect needs a Meta app id and secret* | Advanced credentials empty | Paste App ID + App Secret, Save |
+| *This is a personal Instagram account* | Meta refuses personal accounts | Switch the account to Creator/Business |
+| *Token expired / invalid OAuth token* | 60 days passed | **Reconnect**, or **Refresh token** |
+| *Missing permission / (#10)* | Scopes were not granted | Tick the two `instagram_business_*` permissions, reconnect |
+| *Redirect URI mismatch* | Meta app redirect list does not include the app URL | Meta dashboard → Instagram Login → add `<your-public-url>/api/social/instagram/oauth/callback` |
+| *Test hosting: cannot reach …/api/health* | The public URL is wrong, or the internet cannot reach this machine | Fix **Video hosting → public address**; deploy or tunnel first |
+| *Video does not meet Reels requirements* | Not MP4/H.264, wrong length/size | Use the app's own Shorts — it renders compliant files |
+| *Rate limit / quota* | ~50 posts per 24 h | Wait, or slow auto-publishing |
+| Stuck on *processing* | Instagram could not download the video | Run **Test hosting**; keep the app publicly reachable |
 
 ---
 
-## What this app will not do (and why)
+## What this app will not do
 
-- **Post to a personal Instagram account.** Meta has no API for it. Tools that
-  claim otherwise automate Instagram's private app API, which violates the Terms
-  of Use and gets accounts banned. This app tells you what to change instead.
-- **Upload the file directly to Instagram.** The API has no upload endpoint; URLs
-  are the only supported route.
-- **Guarantee a 100% success rate.** Meta's processing step can fail for reasons
-  outside the app's control (network, codec edge cases, transient 500s). Every
-  attempt is recorded with the platform's own error text so you can see why.
+- **Post to a personal Instagram account.** No API exists for it. Tools that
+  claim otherwise drive Instagram's private app API against its Terms of Use and
+  risk bans; this app tells you what to change instead.
+- **Upload the file directly to Instagram.** It has no upload endpoint.
+- **Guarantee every post succeeds.** Meta's processing can fail for reasons
+  outside the app (network, transient 500s). Each attempt keeps Meta's own error
+  text so you can see why.
 
 ---
 
-## Commands you'll actually use
+## Commands
 
 ```bash
-npm run dev            # develop (recompiles pages on demand)
+npm run dev                  # develop
 npm run build && npm start   # production
-npm run smoke          # 21 HTTP checks against a running server
-npm run test:s3        # S3 signing correctness (no network)
-npm run test:social    # full Instagram flow against a mock API + mock bucket
+npm run smoke                # 21 HTTP checks (server must be running)
+npm run test:s3              # S3 signing correctness
+npm run test:social          # 34 checks: publish, hosting, OAuth, refresh, auto-post
 ```
 
-`test:social` needs the server started with
-`IG_GRAPH_BASE_URL=http://127.0.0.1:3900/graph` so it can talk to its own mock
-instead of Meta. It never touches your real account.
+`test:social` talks to its own mock Meta API and mock bucket, never your account.
+Start the server with the mock URLs shown in the README for that run.

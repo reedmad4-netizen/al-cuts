@@ -19,7 +19,7 @@ export async function POST(
 ) {
   const { id } = await params;
 
-  const limited = enforceRateLimit(req, "social:publish", 10, 10 * 60_000);
+  const limited = enforceRateLimit(req, "social:publish", 60, 10 * 60_000);
   if (limited) return limited;
 
   const user = await getCurrentUser();

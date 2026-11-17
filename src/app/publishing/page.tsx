@@ -26,6 +26,11 @@ interface SocialSettingsView {
   instagramAccessToken: string;
   instagramApiVersion: string;
   instagramLoginMethod: "facebook" | "instagram";
+  instagramTokenExpiresAt: string;
+  metaAppId: string;
+  metaAppSecret: string;
+  storageMode: "builtin" | "s3";
+  publicBaseUrl: string;
   instagramAutoPublish: boolean;
   instagramShareToFeed: boolean;
   instagramHashtags: string;
@@ -60,6 +65,11 @@ const EMPTY_SETTINGS: SocialSettingsView = {
   instagramAccessToken: "",
   instagramApiVersion: "",
   instagramLoginMethod: "facebook",
+  instagramTokenExpiresAt: "",
+  metaAppId: "",
+  metaAppSecret: "",
+  storageMode: "builtin",
+  publicBaseUrl: "",
   instagramAutoPublish: false,
   instagramShareToFeed: true,
   instagramHashtags: "#gaming #gamingclips #reels #clipxai",
@@ -76,6 +86,37 @@ const EMPTY_SETTINGS: SocialSettingsView = {
   storageConfigured: false,
   storageReady: false,
 };
+
+function SetupStep({
+  n,
+  done,
+  title,
+  detail,
+  action,
+}: {
+  n: number;
+  done: boolean;
+  title: string;
+  detail: string;
+  action: React.ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3">
+      <span
+        className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+          done ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-500"
+        }`}
+      >
+        {done ? <CheckCircle2 size={14} /> : n}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-zinc-900">{title}</p>
+        <p className="mt-0.5 text-[13px] text-zinc-600">{detail}</p>
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </li>
+  );
+}
 
 function StatusPill({
   ok,
@@ -117,6 +158,11 @@ export default function PublishingPage() {
     quota?: { used: number; quota: number; remaining: number } | null;
     error?: string;
     help?: string;
+  } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [connectBanner, setConnectBanner] = useState<{
+    ok: boolean;
+    message: string;
   } | null>(null);
   const [storageResult, setStorageResult] = useState<{
     ok: boolean;
@@ -161,6 +207,22 @@ export default function PublishingPage() {
     }
     void loadAll();
   }, [user, loadAll]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connect = params.get("connect");
+    if (connect === "ok") {
+      setConnectBanner({ ok: true, message: "Instagram connected. Run Test connection to confirm." });
+    } else if (connect === "error") {
+      setConnectBanner({
+        ok: false,
+        message: params.get("message") || "Instagram sign-in did not complete.",
+      });
+    }
+    if (connect) {
+      window.history.replaceState({}, "", "/publishing");
+    }
+  }, []);
 
   useEffect(() => {
     return subscribeWs((event, payload) => {
@@ -212,6 +274,11 @@ export default function PublishingPage() {
           instagramUserId: settings.instagramUserId,
           instagramAccessToken: settings.instagramAccessToken,
           instagramApiVersion: settings.instagramApiVersion,
+          instagramLoginMethod: settings.instagramLoginMethod,
+          metaAppId: settings.metaAppId,
+          metaAppSecret: settings.metaAppSecret,
+          storageMode: settings.storageMode,
+          publicBaseUrl: settings.publicBaseUrl,
           instagramAutoPublish: settings.instagramAutoPublish,
           instagramShareToFeed: settings.instagramShareToFeed,
           instagramHashtags: settings.instagramHashtags,
@@ -230,10 +297,10 @@ export default function PublishingPage() {
       setSettings((prev) => ({ ...prev, ...data.settings }));
       notify({
         type: "success",
-        title: "Publishing settings saved",
+        title: "Saved",
         description: data.settings.instagramReady
-          ? "Instagram credentials stored. Run Verify to confirm."
-          : "Add your Instagram account ID and token to enable publishing.",
+          ? "Instagram is connected. Run the check to confirm it can post."
+          : "Next: connect Instagram so it can post for you.",
       });
     } catch (err) {
       notify({
@@ -243,6 +310,38 @@ export default function PublishingPage() {
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  const tokenExpiringSoon = useMemo(() => {
+    if (!settings.instagramTokenExpiresAt) return false;
+    const ms = Date.parse(settings.instagramTokenExpiresAt);
+    if (Number.isNaN(ms)) return false;
+    return ms - Date.now() < 7 * 24 * 60 * 60 * 1000;
+  }, [settings.instagramTokenExpiresAt]);
+
+  async function handleRefreshToken() {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/social/instagram/refresh", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || "Refresh failed.");
+      setSettings((prev) => ({ ...prev, instagramTokenExpiresAt: data.expiresAt }));
+      notify({
+        type: "success",
+        title: "Token refreshed",
+        description: data.expiresAt
+          ? `Valid until ${new Date(data.expiresAt).toLocaleDateString()}.`
+          : "The new token has no reported expiry.",
+      });
+    } catch (err) {
+      notify({
+        type: "error",
+        title: "Could not refresh the token",
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -394,23 +493,66 @@ export default function PublishingPage() {
       }
     >
       <div className="space-y-6">
-        {/* ---------- How it works ---------- */}
-        <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4 text-sm text-brand-900">
-          <div className="mb-2 flex items-center gap-2 font-semibold">
-            <Sparkles size={15} /> How automatic upload works
-          </div>
-          <ol className="ml-5 list-decimal space-y-1 text-[13px] text-brand-900/90">
-            <li>CLIPX AI renders the 9:16 Short (MP4 · H.264 + AAC).</li>
-            <li>
-              The file is uploaded to your S3-compatible bucket, which produces a temporary
-              public URL — Instagram never accepts file uploads directly.
-            </li>
-            <li>
-              Instagram creates a Reel container, processes the video, then publishes it with
-              the AI-written caption.
-            </li>
+        {/* ---------- Setup status ---------- */}
+        <section className="rounded-xl border border-zinc-200 bg-white p-5">
+          <h2 className="text-base font-semibold text-zinc-900">Setup</h2>
+          <p className="mt-1 text-[13px] text-zinc-600">
+            Two steps and your Shorts post themselves. Everything else is optional.
+          </p>
+          <ol className="mt-4 space-y-3">
+            <SetupStep
+              n={1}
+              done={settings.instagramReady}
+              title="Connect Instagram"
+              detail={
+                settings.instagramReady
+                  ? "Connected. Posting is allowed on this account."
+                  : "One click with a Meta app id + secret, or paste a token under Advanced."
+              }
+              action={
+                settings.instagramReady ? null : (
+                  <a
+                    href="/api/social/instagram/oauth/start"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
+                  >
+                    <Instagram size={14} /> Connect Instagram
+                  </a>
+                )
+              }
+            />
+            <SetupStep
+              n={2}
+              done={settings.storageReady}
+              title="Choose where videos are hosted"
+              detail={
+                settings.storageMode === "builtin"
+                  ? settings.publicBaseUrl
+                    ? `Hosted by this app at ${settings.publicBaseUrl} — nothing else to set up.`
+                    : "Uses this app's own URL — set it once below."
+                  : "Uploaded to your S3-compatible bucket."
+              }
+              action={null}
+            />
           </ol>
-        </div>
+          {connectBanner && (
+            <div
+              className={`mt-4 rounded-lg border p-3 text-[13px] ${
+                connectBanner.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                {connectBanner.ok ? (
+                  <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+                ) : (
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                )}
+                <span className="break-words">{connectBanner.message}</span>
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* ---------- Instagram ---------- */}
         <section className="rounded-xl border border-zinc-200 bg-white p-5">
@@ -422,23 +564,55 @@ export default function PublishingPage() {
                 {settings.instagramReady ? "Credentials saved" : "Not connected"}
               </StatusPill>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleVerify()}
-              disabled={verifying || !settings.instagramReady}
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {verifying ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-              Verify connection
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href="/api/social/instagram/oauth/start"
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
+              >
+                <Instagram size={14} />
+                {settings.instagramReady ? "Reconnect" : "Connect Instagram"}
+              </a>
+              {settings.instagramLoginMethod === "instagram" && settings.instagramReady && (
+                <button
+                  type="button"
+                  onClick={() => void handleRefreshToken()}
+                  disabled={refreshing}
+                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  Refresh token
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleVerify()}
+                disabled={verifying || !settings.instagramReady}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {verifying ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                Test connection
+              </button>
+            </div>
           </div>
 
           <p className="mt-2 text-[13px] text-zinc-600">
-            Meta&apos;s publishing API only supports <strong>Business</strong> or{" "}
-            <strong>Creator</strong> accounts linked to a Facebook Page. Personal accounts
-            cannot publish through the API — switch the account type in the Instagram app
-            (Settings → Account type), then verify again.
+            Instagram must be a <strong>Business</strong> or <strong>Creator</strong> account
+            (Settings → Account type in the Instagram app). Personal accounts cannot post
+            through any API — the app tells you if it finds one.
           </p>
+          {settings.instagramTokenExpiresAt && (
+            <p
+              className={`mt-1 text-[12px] ${
+                tokenExpiringSoon ? "font-medium text-amber-700" : "text-zinc-500"
+              }`}
+            >
+              {tokenExpiringSoon ? "⚠ " : ""}Token expires{" "}
+              {formatRelativeTime(settings.instagramTokenExpiresAt)}
+              {settings.instagramLoginMethod === "instagram"
+                ? " — refresh it above."
+                : " — re-connect before then."}
+            </p>
+          )}
 
           {verifyResult && (
             <div
@@ -473,6 +647,38 @@ export default function PublishingPage() {
             </div>
           )}
 
+          <details className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3">
+            <summary className="cursor-pointer text-[13px] font-medium text-zinc-700">
+              Advanced — one-click Meta app credentials or a manually pasted token
+            </summary>
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+              Add the app id + secret from your Meta app and the Connect button above does the
+              rest (it fetches the account id and a 60-day token for you). Only paste a token
+              manually if you already made one in the Meta dashboard.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-zinc-600">Meta app id</span>
+                <input
+                  value={settings.metaAppId}
+                  onChange={(e) => patch("metaAppId", e.target.value)}
+                  placeholder="1234567890"
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-zinc-600">
+                  Meta app secret
+                </span>
+                <input
+                  type="password"
+                  value={settings.metaAppSecret}
+                  onChange={(e) => patch("metaAppSecret", e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+                />
+              </label>
+            </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-zinc-600">
@@ -549,6 +755,7 @@ export default function PublishingPage() {
             entirely. Pick whichever path you used to generate the token — publishing
             endpoints are identical.
           </p>
+          </details>
 
           <div className="mt-4 space-y-2">
             <label className="flex items-start gap-2 text-sm text-zinc-700">
@@ -580,7 +787,7 @@ export default function PublishingPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Cloud size={18} className="text-sky-600" />
-              <h2 className="text-base font-semibold text-zinc-900">Media hosting (S3-compatible)</h2>
+              <h2 className="text-base font-semibold text-zinc-900">Video hosting</h2>
               <StatusPill ok={settings.storageReady}>
                 {settings.storageReady ? "Configured" : "Not configured"}
               </StatusPill>
@@ -592,15 +799,83 @@ export default function PublishingPage() {
               className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {testingStorage ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
-              Test bucket
+              Test hosting
             </button>
           </div>
 
           <p className="mt-2 text-[13px] text-zinc-600">
-            Works with AWS S3, Cloudflare R2, Backblaze B2 and MinIO. Instagram downloads the
-            Short from a URL, so the bucket must either be publicly readable or you can leave
-            the CDN field empty to use signed links.
+            Instagram downloads each Reel from a URL, so the file needs a public address.
+            Leave this on <strong>This app</strong> and there is nothing to sign up for.
           </p>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => patch("storageMode", "builtin")}
+              className={`rounded-lg border p-3 text-left text-[13px] ${
+                settings.storageMode === "builtin"
+                  ? "border-brand-500 bg-brand-50/60 ring-1 ring-brand-200"
+                  : "border-zinc-200 hover:bg-zinc-50"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-semibold text-zinc-900">
+                <CheckCircle2 size={14} className={settings.storageMode === "builtin" ? "text-brand-600" : "text-zinc-300"} />
+                This app (recommended)
+              </span>
+              <span className="mt-1 block text-zinc-600">
+                Serves each Short through a signed link that expires in 24 h. No bucket, no
+                extra account.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => patch("storageMode", "s3")}
+              className={`rounded-lg border p-3 text-left text-[13px] ${
+                settings.storageMode === "s3"
+                  ? "border-brand-500 bg-brand-50/60 ring-1 ring-brand-200"
+                  : "border-zinc-200 hover:bg-zinc-50"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-semibold text-zinc-900">
+                <CheckCircle2 size={14} className={settings.storageMode === "s3" ? "text-brand-600" : "text-zinc-300"} />
+                S3-compatible bucket
+              </span>
+              <span className="mt-1 block text-zinc-600">
+                AWS S3, Cloudflare R2, Backblaze B2 or MinIO. Better for many uploads or when
+                the app sits behind a lazy proxy.
+              </span>
+            </button>
+          </div>
+
+          {settings.storageMode === "builtin" && (
+            <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-zinc-600">
+                  Public address of this app (what Instagram will call)
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    value={settings.publicBaseUrl}
+                    onChange={(e) => patch("publicBaseUrl", e.target.value)}
+                    placeholder="https://clips.yourdomain.com"
+                    className="min-w-0 flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => patch("publicBaseUrl", window.location.origin)}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Use current address
+                  </button>
+                </div>
+              </label>
+              <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                Saved automatically the first time you save from the address you deploy on.
+                Needs to be reachable from the internet over HTTPS — localhost works for
+                testing the flow, but Instagram cannot download from it.
+              </p>
+            </div>
+          )}
 
           {storageResult && (
             <div
@@ -626,6 +901,8 @@ export default function PublishingPage() {
             </div>
           )}
 
+          {settings.storageMode === "s3" && (
+            <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-zinc-600">Endpoint</span>
@@ -703,12 +980,16 @@ export default function PublishingPage() {
             />
             Path-style URLs (needed for MinIO and most non-AWS providers)
           </label>
+            </>
+          )}
 
           <p className="mt-3 text-[12px] text-zinc-500">
-            Credentials are stored server-side and never returned to the browser. Prefer
-            environment variables (<code>IG_USER_ID</code>, <code>IG_ACCESS_TOKEN</code>,{" "}
-            <code>S3_ENDPOINT</code>, <code>S3_BUCKET</code>, <code>S3_ACCESS_KEY_ID</code>,{" "}
-            <code>S3_SECRET_ACCESS_KEY</code>) on shared deployments.
+            Credentials are stored server-side and never returned to the browser. On shared
+            deployments prefer environment variables: <code>IG_USER_ID</code>,{" "}
+            <code>IG_ACCESS_TOKEN</code>, <code>IG_APP_ID</code>, <code>IG_APP_SECRET</code>,{" "}
+            <code>PUBLIC_BASE_URL</code>, and for bucket mode <code>S3_ENDPOINT</code>,{" "}
+            <code>S3_BUCKET</code>, <code>S3_ACCESS_KEY_ID</code>,{" "}
+            <code>S3_SECRET_ACCESS_KEY</code>.
           </p>
         </section>
 
@@ -720,7 +1001,7 @@ export default function PublishingPage() {
             className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
           >
             {saving && <Loader2 size={14} className="animate-spin" />}
-            Save publishing settings
+            Save
           </button>
         </div>
 

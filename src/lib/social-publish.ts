@@ -23,6 +23,7 @@ import {
   type InstagramConfig,
 } from "./instagram";
 import { resolveObjectKey, uploadFile, type S3Config } from "./s3";
+import { buildPublicMediaUrl, hostingWarning } from "./public-media";
 
 const DAILY_PUBLISH_LIMIT = 50;
 const MEDIA_URL_TTL_SECONDS = 24 * 60 * 60;
@@ -128,9 +129,16 @@ export async function publishClipToInstagram(params: {
       ok: false,
       needsAttention: "storage_not_configured",
       error:
-        "No media host is configured. Instagram downloads videos from a public URL, so add your S3-compatible bucket credentials in Settings → Media hosting.",
+        settings.storageMode === "builtin"
+          ? "Set this app's public HTTPS URL under Publishing → Video hosting, or switch to an S3 bucket."
+          : "Add your bucket endpoint, name, access key and secret under Publishing → Video hosting.",
     };
   }
+
+  const hostWarning =
+    settings.storageMode === "builtin"
+      ? hostingWarning(settings.publicBaseUrl)
+      : null;
 
   const resolved = resolveVerticalClip(clipId);
   if (!resolved) {
@@ -250,18 +258,39 @@ export async function publishClipToInstagram(params: {
     })!;
     broadcastWs("social_post_updated", post);
 
-    const objectKeyName = `${isShort ? "shorts" : "clips"}/${userId}/${target.id}-${Date.now()}.mp4`;
-    const uploaded = await uploadFile({
-      config: storageConfigFrom(settings),
-      filePath: target.filePath,
-      key: objectKeyName,
-      contentType: "video/mp4",
-      publicUrlTtlSeconds: MEDIA_URL_TTL_SECONDS,
-    });
+    let uploaded: { publicUrl: string; expiresAt: string; key: string };
+
+    if (settings.storageMode === "builtin") {
+      // Served by this app with a signed, expiring URL — no bucket involved.
+      const link = buildPublicMediaUrl(
+        settings.publicBaseUrl,
+        target.id,
+        MEDIA_URL_TTL_SECONDS
+      );
+      uploaded = {
+        publicUrl: link.url,
+        expiresAt: link.expiresAt,
+        key: `builtin:${target.id}`,
+      };
+    } else {
+      const objectKeyName = `${isShort ? "shorts" : "clips"}/${userId}/${target.id}-${Date.now()}.mp4`;
+      const put = await uploadFile({
+        config: storageConfigFrom(settings),
+        filePath: target.filePath,
+        key: objectKeyName,
+        contentType: "video/mp4",
+        publicUrlTtlSeconds: MEDIA_URL_TTL_SECONDS,
+      });
+      uploaded = {
+        publicUrl: put.publicUrl,
+        expiresAt: put.expiresAt,
+        key: resolveObjectKey(storageConfigFrom(settings), objectKeyName),
+      };
+    }
 
     post = updateSocialPost(post.id, {
       status: "creating",
-      mediaKey: resolveObjectKey(storageConfigFrom(settings), objectKeyName),
+      mediaKey: uploaded.key,
       mediaUrlExpiresAt: uploaded.expiresAt,
     })!;
     broadcastWs("social_post_updated", post);
@@ -294,7 +323,11 @@ export async function publishClipToInstagram(params: {
     })!;
     broadcastWs("social_post_updated", post);
 
-    return { ok: true, post, warnings: validation.warnings };
+    return {
+      ok: true,
+      post,
+      warnings: [...(validation.warnings || []), ...(hostWarning ? [hostWarning] : [])],
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Publishing failed.";
     const hint = err instanceof Error && "hint" in err ? String((err as { hint?: string }).hint || "") : "";

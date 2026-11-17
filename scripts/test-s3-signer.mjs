@@ -35,8 +35,20 @@ function loadTsModule(file) {
     },
   });
   const module = { exports: {} };
+  // Resolve relative imports that point at other .ts helpers (e.g. net-errors)
+  // through this same transpiler instead of Node's CommonJS loader.
+  const dir = path.dirname(file);
+  const localRequire = (id) => {
+    if (id.startsWith("./") || id.startsWith("../")) {
+      const base = path.resolve(dir, id);
+      for (const ext of ["", ".ts", ".tsx", ".js", ".mjs"]) {
+        if (fs.existsSync(base + ext)) return loadTsModule(base + ext);
+      }
+    }
+    return require(id);
+  };
   const factory = new Function("exports", "require", "module", outputText);
-  factory(module.exports, require, module);
+  factory(module.exports, localRequire, module);
   return module.exports;
 }
 

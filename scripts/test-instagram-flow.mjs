@@ -20,6 +20,8 @@ const BASE = (process.env.SMOKE_BASE_URL || "http://localhost:3100").replace(/\/
 const MOCK_PORT = Number(process.env.MOCK_PORT || 3900);
 const IG_USER_ID = "17841400000000001";
 const PERSONAL_IG_USER_ID = "17841400000000099";
+const OAUTH_USER_ID = "17841400000000042";
+const OAUTH_LONG_TOKEN = "oauth-long-lived-token";
 const TOKEN = "test-long-lived-token";
 const CLIP_ID = process.env.TEST_CLIP_ID || "clip-demo-1";
 
@@ -79,6 +81,25 @@ const mock = http.createServer(async (req, res) => {
       res.end(stored);
       return;
     }
+  }
+
+  // ---- mock OAuth (Instagram Login) ----
+  if (req.method === "POST" && url.pathname === "/oauth/access_token") {
+    const form = new URLSearchParams(body.toString());
+    if (form.get("code") !== "mock-code") {
+      json(400, { error_type: "OAuthException", error_message: "Invalid code" });
+      return;
+    }
+    json(200, { access_token: "short-lived-token", user_id: OAUTH_USER_ID });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/access_token") {
+    json(200, { access_token: OAUTH_LONG_TOKEN, expires_in: 5184000 });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/refresh_access_token") {
+    json(200, { access_token: "refreshed-token", expires_in: 5184000 });
+    return;
   }
 
   // ---- mock Graph API ----
@@ -228,6 +249,7 @@ async function main() {
         instagramApiVersion: "v23.0",
         instagramShareToFeed: true,
         instagramHashtags: "#test #gaming",
+        storageMode: "s3",
         storageEndpoint: `http://127.0.0.1:${MOCK_PORT}/s3`,
         storageRegion: "auto",
         storageBucket: "clipx-test",
@@ -315,6 +337,72 @@ async function main() {
       Boolean(form?.get("caption")?.includes("AI hype")),
     form?.get("caption")?.slice(0, 80)
   );
+
+  // 5b. built-in hosting: this app serves the file, no bucket involved
+  await api(
+    "/api/social/settings",
+    {
+      method: "PUT",
+      body: JSON.stringify({ storageMode: "builtin", publicBaseUrl: BASE }),
+    },
+    cookie
+  );
+
+  const builtinPublish = await api(
+    `/api/clips/${CLIP_ID}/publish`,
+    { method: "POST", body: JSON.stringify({ platform: "instagram", force: true }) },
+    cookie
+  );
+  check(
+    "publish works without any bucket",
+    builtinPublish.json?.ok === true,
+    builtinPublish.json?.error
+  );
+
+  const builtinCall = graphCalls
+    .filter((call) => call.method === "POST" && call.path.endsWith("/media"))
+    .pop();
+  const builtinForm = builtinCall
+    ? new URLSearchParams(builtinCall.body.toString())
+    : null;
+  const signedUrl = builtinForm?.get("video_url") || "";
+  check(
+    "built-in hosting sends this app's signed URL",
+    signedUrl.startsWith(`${BASE}/api/public/short/`),
+    signedUrl
+  );
+
+  if (signedUrl) {
+    const download = await fetch(signedUrl, {
+      headers: { Range: "bytes=0-4095" },
+    });
+    const contentType = download.headers.get("content-type") || "";
+    const bytes = (await download.arrayBuffer()).byteLength;
+    check(
+      "an anonymous client (like Instagram) can download it",
+      (download.status === 200 || download.status === 206) &&
+        contentType.startsWith("video/") &&
+        bytes > 0,
+      `${download.status} ${contentType} ${bytes}B`
+    );
+
+    const tampered = signedUrl.replace(/.$/, (c) => (c === "A" ? "B" : "A"));
+    const rejected = await fetch(tampered);
+    check(
+      "a tampered link is refused",
+      rejected.status === 403,
+      String(rejected.status)
+    );
+
+    const expiresIn = Date.parse(
+      builtinPublish.json?.post?.mediaUrlExpiresAt || ""
+    ) - Date.now();
+    check(
+      "the link expires within 24 h",
+      expiresIn > 0 && expiresIn <= 24 * 60 * 60 * 1000 + 60_000,
+      `${Math.round(expiresIn / 1000)}s`
+    );
+  }
 
   // 6. history + idempotency
   const posts = await api("/api/social/posts", {}, cookie);
@@ -428,6 +516,93 @@ async function main() {
       body: JSON.stringify({ instagramUserId: IG_USER_ID }),
     },
     cookie
+  );
+
+  // 6d. one-click Connect: OAuth start → callback → stored 60-day token
+  await api(
+    "/api/social/settings",
+    {
+      method: "PUT",
+      body: JSON.stringify({ metaAppId: "1234567890", metaAppSecret: "app-secret" }),
+    },
+    cookie
+  );
+
+  const start = await fetch(`${BASE}/api/social/instagram/oauth/start`, {
+    headers: { Cookie: cookie },
+    redirect: "manual",
+  });
+  const location = start.headers.get("location") || "";
+  check(
+    "connect button redirects to Meta with the right scopes",
+    start.status >= 300 &&
+      start.status < 400 &&
+      location.includes("client_id=1234567890") &&
+      location.includes("instagram_business_content_publish"),
+    `${start.status} ${location.slice(0, 90)}`
+  );
+
+  const stateCookie = (start.headers.getSetCookie?.() || [])
+    .map((c) => c.split(";")[0])
+    .find((c) => c.startsWith("ig_oauth_state="));
+  const state = stateCookie ? stateCookie.split("=")[1] : "";
+  check("state is stored in an HttpOnly cookie", Boolean(state));
+
+  const callback = await fetch(
+    `${BASE}/api/social/instagram/oauth/callback?code=mock-code&state=${encodeURIComponent(state)}`,
+    {
+      headers: { Cookie: `${cookie}; ${stateCookie}` },
+      redirect: "manual",
+    }
+  );
+  check(
+    "callback returns to the publishing page",
+    callback.status >= 300 &&
+      callback.status < 400 &&
+      (callback.headers.get("location") || "").includes("connect=ok"),
+    `${callback.status} ${callback.headers.get("location") || ""}`
+  );
+
+  const connected = await api("/api/social/settings", {}, cookie);
+  const cs = connected.json?.settings || {};
+  check(
+    "the account id was discovered automatically",
+    cs.instagramUserId === OAUTH_USER_ID,
+    cs.instagramUserId
+  );
+  check(
+    "the long-lived token was stored (masked)",
+    cs.instagramAccessToken === "••••••••" && cs.instagramLoginMethod === "instagram",
+    `${cs.instagramAccessToken} / ${cs.instagramLoginMethod}`
+  );
+  const oauthDays = (Date.parse(cs.instagramTokenExpiresAt || "") - Date.now()) / 86_400_000;
+  check(
+    "the token is valid for ~60 days",
+    oauthDays > 55 && oauthDays < 62,
+    `${oauthDays.toFixed(1)} days`
+  );
+
+  const refresh = await api(
+    "/api/social/instagram/refresh",
+    { method: "POST" },
+    cookie
+  );
+  check(
+    "token refresh works without another sign-in",
+    refresh.res.status === 200 && refresh.json?.ok === true,
+    JSON.stringify(refresh.json).slice(0, 120)
+  );
+
+  // a callback with a bogus state must be refused
+  const forged = await fetch(
+    `${BASE}/api/social/instagram/oauth/callback?code=mock-code&state=forged`,
+    { headers: { Cookie: cookie }, redirect: "manual" }
+  );
+  check(
+    "a forged OAuth state is rejected",
+    forged.status >= 300 &&
+      (forged.headers.get("location") || "").includes("connect=error"),
+    `${forged.status}`
   );
 
   // 7. authorization: anonymous cannot publish

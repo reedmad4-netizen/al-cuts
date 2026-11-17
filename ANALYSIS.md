@@ -395,6 +395,13 @@ Requested feature: automatically upload rendered Shorts to Instagram.
   actionable error, invalid video → refused before upload, re-publish →
   not duplicated.
 
+### Ease-of-use pass (same release)
+The first version required a Meta app, a manual token exchange, a 17-digit id and
+an S3 bucket — too much for a feature whose job is "post my Shorts". Simplified:
+built-in signed media hosting (no bucket), one-click OAuth connect that discovers
+the account id and upgrades to a 60-day token, in-place token refresh, a two-step
+Setup checklist, and the 16-field form collapsed behind *Advanced*.
+
 ### Still open
 Podcast-style scheduling, carousel/Story targets, token refresh automation
 (long-lived tokens expire after ~60 days), and per-account multi-tenant bucket
