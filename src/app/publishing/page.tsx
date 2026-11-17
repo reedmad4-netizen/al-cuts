@@ -160,6 +160,10 @@ export default function PublishingPage() {
     help?: string;
   } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [redirectUri, setRedirectUri] = useState(
+    "/api/social/instagram/oauth/callback"
+  );
   const [connectBanner, setConnectBanner] = useState<{
     ok: boolean;
     message: string;
@@ -207,6 +211,12 @@ export default function PublishingPage() {
     }
     void loadAll();
   }, [user, loadAll]);
+
+  useEffect(() => {
+    setRedirectUri(
+      `${window.location.origin}/api/social/instagram/oauth/callback`
+    );
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -319,6 +329,20 @@ export default function PublishingPage() {
     if (Number.isNaN(ms)) return false;
     return ms - Date.now() < 7 * 24 * 60 * 60 * 1000;
   }, [settings.instagramTokenExpiresAt]);
+
+  function startConnect() {
+    if (!settings.metaAppId || !settings.metaAppSecret) {
+      setAdvancedOpen(true);
+      notify({
+        type: "info",
+        title: "Add your Meta app id + secret first",
+        description:
+          "Both values are on your Meta app page under App settings → Basic. They are stored server-side and never sent back to the browser.",
+      });
+      return;
+    }
+    window.location.href = "/api/social/instagram/oauth/start";
+  }
 
   async function handleRefreshToken() {
     setRefreshing(true);
@@ -511,12 +535,13 @@ export default function PublishingPage() {
               }
               action={
                 settings.instagramReady ? null : (
-                  <a
-                    href="/api/social/instagram/oauth/start"
+                  <button
+                    type="button"
+                    onClick={startConnect}
                     className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
                   >
                     <Instagram size={14} /> Connect Instagram
-                  </a>
+                  </button>
                 )
               }
             />
@@ -565,13 +590,14 @@ export default function PublishingPage() {
               </StatusPill>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <a
-                href="/api/social/instagram/oauth/start"
+              <button
+                type="button"
+                onClick={startConnect}
                 className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
               >
                 <Instagram size={14} />
                 {settings.instagramReady ? "Reconnect" : "Connect Instagram"}
-              </a>
+              </button>
               {settings.instagramLoginMethod === "instagram" && settings.instagramReady && (
                 <button
                   type="button"
@@ -647,15 +673,45 @@ export default function PublishingPage() {
             </div>
           )}
 
-          <details className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3">
+          <details
+            open={advancedOpen}
+            onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
+            className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3"
+          >
             <summary className="cursor-pointer text-[13px] font-medium text-zinc-700">
-              Advanced — one-click Meta app credentials or a manually pasted token
+              Advanced — Meta app credentials or a manually pasted token
+              {!settings.instagramReady && !settings.metaAppId && (
+                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                  needed for one-click
+                </span>
+              )}
             </summary>
             <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
               Add the app id + secret from your Meta app and the Connect button above does the
               rest (it fetches the account id and a 60-day token for you). Only paste a token
               manually if you already made one in the Meta dashboard.
             </p>
+            <div className="mt-3 rounded-lg border border-zinc-200 bg-white p-2.5">
+              <p className="text-[11px] text-zinc-600">
+                Add this exact URL to your Meta app → <em>Instagram → API setup with
+                Instagram login → Business login settings → Valid OAuth redirect URIs</em>:
+              </p>
+              <div className="mt-1 flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded bg-zinc-100 px-2 py-1 text-[11px] text-zinc-700">
+                  {redirectUri}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(redirectUri);
+                    notify({ type: "success", title: "Copied redirect URI" });
+                  }}
+                  className="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-zinc-600">Meta app id</span>

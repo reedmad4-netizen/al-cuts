@@ -518,6 +518,26 @@ async function main() {
     cookie
   );
 
+  // 6c. pressing Connect with no Meta app credentials must explain itself,
+  //     not dump raw JSON into the browser.
+  await api(
+    "/api/social/settings",
+    { method: "PUT", body: JSON.stringify({ metaAppId: "", metaAppSecret: "" }) },
+    cookie
+  );
+  const noCreds = await fetch(`${BASE}/api/social/instagram/oauth/start`, {
+    headers: { Cookie: cookie },
+    redirect: "manual",
+  });
+  const noCredsLocation = noCreds.headers.get("location") || "";
+  check(
+    "Connect without credentials redirects to a readable message",
+    noCreds.status >= 300 &&
+      noCreds.status < 400 &&
+      noCredsLocation.includes("connect=error"),
+    `${noCreds.status} ${noCredsLocation.slice(0, 80)}`
+  );
+
   // 6d. one-click Connect: OAuth start → callback → stored 60-day token
   await api(
     "/api/social/settings",

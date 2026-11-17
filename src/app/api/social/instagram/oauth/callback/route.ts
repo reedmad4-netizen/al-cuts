@@ -4,9 +4,11 @@ import { getSocialSettings, updateSocialSettings } from "@/lib/db";
 import {
   exchangeCodeForToken,
   isOAuthConfigured,
+  OAUTH_REDIRECT_COOKIE,
   OAUTH_STATE_COOKIE,
   OAuthError,
 } from "@/lib/instagram-oauth";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +18,18 @@ function back(origin: string, params: Record<string, string>) {
   return NextResponse.redirect(url);
 }
 
+function readCookie(req: Request, name: string): string | undefined {
+  return req.headers
+    .get("cookie")
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const origin = url.origin;
+  const origin = resolveRequestOrigin(req);
 
   const user = await getCurrentUser();
   if (!user) {
@@ -32,12 +43,11 @@ export async function GET(req: Request) {
 
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const expectedState = req.headers
-    .get("cookie")
-    ?.split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${OAUTH_STATE_COOKIE}=`))
-    ?.slice(OAUTH_STATE_COOKIE.length + 1);
+  const expectedState = readCookie(req, OAUTH_STATE_COOKIE);
+  // Meta requires the exchange to repeat the exact redirect_uri from /start.
+  const redirectUri =
+    readCookie(req, OAUTH_REDIRECT_COOKIE) ||
+    `${origin}/api/social/instagram/oauth/callback`;
 
   if (!code) {
     return back(origin, { connect: "error", message: "Instagram did not return an authorization code." });
@@ -58,7 +68,7 @@ export async function GET(req: Request) {
   try {
     const result = await exchangeCodeForToken({
       code,
-      redirectUri: `${origin}/api/social/instagram/oauth/callback`,
+      redirectUri,
       creds,
     });
 
@@ -71,6 +81,7 @@ export async function GET(req: Request) {
 
     const res = back(origin, { connect: "ok" });
     res.cookies.set(OAUTH_STATE_COOKIE, "", { path: "/", maxAge: 0 });
+    res.cookies.set(OAUTH_REDIRECT_COOKIE, "", { path: "/", maxAge: 0 });
     return res;
   } catch (err) {
     const message =

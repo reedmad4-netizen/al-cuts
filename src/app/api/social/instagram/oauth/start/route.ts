@@ -5,9 +5,11 @@ import { getSocialSettings } from "@/lib/db";
 import {
   buildAuthorizeUrl,
   isOAuthConfigured,
+  OAUTH_REDIRECT_COOKIE,
   OAUTH_STATE_COOKIE,
 } from "@/lib/instagram-oauth";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -28,24 +30,35 @@ export async function GET(req: Request) {
   const settings = getSocialSettings(user.id);
   const creds = { appId: settings.metaAppId, appSecret: settings.rawMetaAppSecret };
 
+  const origin = resolveRequestOrigin(req);
+
   if (!isOAuthConfigured(creds)) {
-    return NextResponse.json(
-      {
-        error:
-          "One-click connect needs a Meta app id and secret. Add them under Advanced, or paste a token manually.",
-        needs: "meta_app_credentials",
-      },
-      { status: 400 }
+    // This is a browser navigation, so answer with a readable banner rather
+    // than a JSON body the user would have to interpret.
+    const url = new URL("/publishing", origin);
+    url.searchParams.set("connect", "error");
+    url.searchParams.set(
+      "message",
+      "Add your Meta app id and secret first — open “Advanced” on this page, paste both, press Save, then Connect Instagram again."
     );
+    return NextResponse.redirect(url);
   }
 
-  const origin = new URL(req.url).origin;
   const redirectUri = `${origin}/api/social/instagram/oauth/callback`;
   const state = crypto.randomBytes(24).toString("base64url");
 
   const res = NextResponse.redirect(
     buildAuthorizeUrl({ appId: creds.appId, redirectUri, state })
   );
+  // Remember the exact redirect_uri used, so the callback sends Meta the same
+  // value even if the proxy headers differ between the two requests.
+  res.cookies.set(OAUTH_REDIRECT_COOKIE, redirectUri, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: origin.startsWith("https://"),
+    path: "/",
+    maxAge: 10 * 60,
+  });
   res.cookies.set(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
     sameSite: "lax",

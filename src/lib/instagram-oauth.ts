@@ -27,6 +27,8 @@ const REFRESH_URL =
 
 /** Cookie holding the OAuth state value between /start and /callback. */
 export const OAUTH_STATE_COOKIE = "ig_oauth_state";
+/** The redirect_uri used at /start, reused verbatim at /callback. */
+export const OAUTH_REDIRECT_COOKIE = "ig_oauth_redirect";
 
 export const INSTAGRAM_LOGIN_SCOPES = [
   "instagram_business_basic",
