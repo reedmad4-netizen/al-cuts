@@ -396,6 +396,15 @@ function initSchema(db: SqlDatabase) {
   ensureColumn("user_settings", "instagram_token_expires_at", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "meta_app_id", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "meta_app_secret", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "youtube_client_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "youtube_client_secret", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "youtube_refresh_token", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "youtube_channel_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "youtube_channel_title", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "youtube_privacy", "TEXT NOT NULL DEFAULT 'public'");
+  ensureColumn("user_settings", "youtube_category_id", "TEXT NOT NULL DEFAULT '20'");
+  ensureColumn("user_settings", "youtube_made_for_kids", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("user_settings", "youtube_auto_publish", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("user_settings", "instagram_auto_publish", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("user_settings", "instagram_share_to_feed", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(
@@ -1228,6 +1237,15 @@ export interface SocialSettings {
   /** Meta app credentials enable the one-click "Connect Instagram" button. */
   metaAppId: string;
   metaAppSecretConfigured: boolean;
+  youtubeConfigured: boolean;
+  youtubeClientId: string;
+  youtubeClientSecretConfigured: boolean;
+  youtubeChannelId: string;
+  youtubeChannelTitle: string;
+  youtubePrivacy: "public" | "unlisted" | "private";
+  youtubeCategoryId: string;
+  youtubeMadeForKids: boolean;
+  youtubeAutoPublish: boolean;
   instagramApiVersion: string;
   instagramAutoPublish: boolean;
   instagramShareToFeed: boolean;
@@ -1249,6 +1267,8 @@ export interface SocialSettingsWithSecrets extends SocialSettings {
   rawInstagramToken: string;
   rawStorageSecret: string;
   rawMetaAppSecret: string;
+  rawYouTubeClientSecret: string;
+  rawYouTubeRefreshToken: string;
 }
 
 function socialDefaults(userId: string) {
@@ -1260,6 +1280,15 @@ function socialDefaults(userId: string) {
     instagram_token_expires_at: "",
     meta_app_id: "",
     meta_app_secret: "",
+    youtube_client_id: "",
+    youtube_client_secret: "",
+    youtube_refresh_token: "",
+    youtube_channel_id: "",
+    youtube_channel_title: "",
+    youtube_privacy: "public",
+    youtube_category_id: "20",
+    youtube_made_for_kids: 0,
+    youtube_auto_publish: 0,
     instagram_auto_publish: 0,
     instagram_share_to_feed: 1,
     instagram_hashtags: "#gaming #gamingclips #reels #clipxai",
@@ -1303,6 +1332,15 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
   const storageMode: "builtin" | "s3" =
     String(row.storage_mode ?? "builtin").toLowerCase() === "s3" ? "s3" : "builtin";
   const publicBaseUrl = pick("public_base_url", "PUBLIC_BASE_URL");
+
+  const ytClientId = pick("youtube_client_id", "YT_CLIENT_ID");
+  const ytClientSecret = pick("youtube_client_secret", "YT_CLIENT_SECRET");
+  const ytRefreshToken = pick("youtube_refresh_token", "YT_REFRESH_TOKEN");
+  const ytPrivacyRaw = String(row.youtube_privacy ?? "public").toLowerCase();
+  const ytPrivacy =
+    ytPrivacyRaw === "unlisted" || ytPrivacyRaw === "private"
+      ? (ytPrivacyRaw as "unlisted" | "private")
+      : "public";
   const instagramToken = pick("instagram_access_token", "IG_ACCESS_TOKEN");
   const storageEndpoint = pick("storage_endpoint", "S3_ENDPOINT");
   const storageBucket = pick("storage_bucket", "S3_BUCKET");
@@ -1354,6 +1392,17 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
     rawInstagramToken: instagramToken,
     rawStorageSecret: storageSecret,
     rawMetaAppSecret: pick("meta_app_secret", "IG_APP_SECRET"),
+    youtubeConfigured: Boolean(ytClientId && ytClientSecret && ytRefreshToken),
+    youtubeClientId: ytClientId,
+    youtubeClientSecretConfigured: Boolean(ytClientSecret),
+    youtubeChannelId: String(row.youtube_channel_id ?? ""),
+    youtubeChannelTitle: String(row.youtube_channel_title ?? ""),
+    youtubePrivacy: ytPrivacy,
+    youtubeCategoryId: String(row.youtube_category_id ?? "20") || "20",
+    youtubeMadeForKids: Boolean(Number(row.youtube_made_for_kids ?? 0)),
+    youtubeAutoPublish: Boolean(Number(row.youtube_auto_publish ?? 0)),
+    rawYouTubeClientSecret: ytClientSecret,
+    rawYouTubeRefreshToken: ytRefreshToken,
   };
 }
 
@@ -1364,6 +1413,15 @@ export interface SocialSettingsPatch {
   metaAppId?: string;
   metaAppSecret?: string;
   storageMode?: "builtin" | "s3";
+  youtubeClientId?: string;
+  youtubeClientSecret?: string;
+  youtubeRefreshToken?: string;
+  youtubeChannelId?: string;
+  youtubeChannelTitle?: string;
+  youtubePrivacy?: "public" | "unlisted" | "private";
+  youtubeCategoryId?: string;
+  youtubeMadeForKids?: boolean;
+  youtubeAutoPublish?: boolean;
   publicBaseUrl?: string;
   instagramAccessToken?: string;
   instagramApiVersion?: string;
@@ -1435,6 +1493,37 @@ export function updateSocialSettings(
         : patch.metaAppSecret === ""
         ? ""
         : current.rawMetaAppSecret,
+    youtubeClientId:
+      patch.youtubeClientId !== undefined
+        ? patch.youtubeClientId.trim()
+        : current.youtubeClientId,
+    youtubeClientSecret:
+      patch.youtubeClientSecret !== undefined && patch.youtubeClientSecret !== MASK
+        ? patch.youtubeClientSecret.trim()
+        : patch.youtubeClientSecret === ""
+        ? ""
+        : current.rawYouTubeClientSecret,
+    youtubeRefreshToken:
+      patch.youtubeRefreshToken !== undefined && patch.youtubeRefreshToken !== MASK
+        ? patch.youtubeRefreshToken.trim()
+        : patch.youtubeRefreshToken === ""
+        ? ""
+        : current.rawYouTubeRefreshToken,
+    youtubeChannelId:
+      patch.youtubeChannelId !== undefined
+        ? patch.youtubeChannelId.trim()
+        : current.youtubeChannelId,
+    youtubeChannelTitle:
+      patch.youtubeChannelTitle !== undefined
+        ? patch.youtubeChannelTitle.trim()
+        : current.youtubeChannelTitle,
+    youtubePrivacy: patch.youtubePrivacy ?? current.youtubePrivacy,
+    youtubeCategoryId:
+      patch.youtubeCategoryId !== undefined
+        ? patch.youtubeCategoryId.trim() || "20"
+        : current.youtubeCategoryId,
+    youtubeMadeForKids: patch.youtubeMadeForKids ?? current.youtubeMadeForKids,
+    youtubeAutoPublish: patch.youtubeAutoPublish ?? current.youtubeAutoPublish,
     storageMode: patch.storageMode ?? current.storageMode,
     publicBaseUrl:
       patch.publicBaseUrl !== undefined
@@ -1487,6 +1576,9 @@ export function updateSocialSettings(
        instagram_login_method = ?, instagram_token_expires_at = ?,
        meta_app_id = ?, meta_app_secret = ?,
        storage_mode = ?, public_base_url = ?,
+       youtube_client_id = ?, youtube_client_secret = ?, youtube_refresh_token = ?,
+       youtube_channel_id = ?, youtube_channel_title = ?, youtube_privacy = ?,
+       youtube_category_id = ?, youtube_made_for_kids = ?, youtube_auto_publish = ?,
        instagram_auto_publish = ?, instagram_share_to_feed = ?, instagram_hashtags = ?,
        storage_endpoint = ?, storage_region = ?, storage_bucket = ?,
        storage_access_key_id = ?, storage_secret_access_key = ?, storage_prefix = ?,
@@ -1502,6 +1594,15 @@ export function updateSocialSettings(
     next.metaAppSecret,
     next.storageMode,
     next.publicBaseUrl,
+    next.youtubeClientId,
+    next.youtubeClientSecret,
+    next.youtubeRefreshToken,
+    next.youtubeChannelId,
+    next.youtubeChannelTitle,
+    next.youtubePrivacy,
+    next.youtubeCategoryId,
+    next.youtubeMadeForKids ? 1 : 0,
+    next.youtubeAutoPublish ? 1 : 0,
     next.instagramAutoPublish ? 1 : 0,
     next.instagramShareToFeed ? 1 : 0,
     next.instagramHashtags,
@@ -1522,6 +1623,7 @@ export function updateSocialSettings(
 
 export type SocialPostStatus =
   | "queued"
+  | "uploading"
   | "hosting"
   | "creating"
   | "processing"
@@ -1680,14 +1782,18 @@ export function findSocialPostForClip(
   return row ? mapSocialPostRow(row) : null;
 }
 
-/** Counts successful API publishes in the rolling window (Instagram allows 50/24h). */
-export function countPublishedSince(userId: string | null, sinceIso: string): number {
+/** Counts successful API publishes in the rolling window, per platform. */
+export function countPublishedSince(
+  userId: string | null,
+  sinceIso: string,
+  platform = "instagram"
+): number {
   const row = getDb()
     .prepare(
       `SELECT COUNT(*) AS n FROM social_posts
-       WHERE platform = 'instagram' AND status = 'published'
+       WHERE platform = ? AND status = 'published'
          AND published_at >= ? AND (user_id IS NULL OR user_id = ?)`
     )
-    .get(sinceIso, userId ?? "__guest__") as { n?: number } | undefined;
+    .get(platform, sinceIso, userId ?? "__guest__") as { n?: number } | undefined;
   return Number(row?.n ?? 0);
 }

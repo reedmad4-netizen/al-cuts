@@ -3,13 +3,17 @@ import { z } from "zod";
 import { canUserExportClip, getCurrentUser } from "@/lib/auth";
 import { getDb, mapClipRow } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { publishClipToInstagram } from "@/lib/social-publish";
+import {
+  publishClipToInstagram,
+  publishClipToYouTube,
+  type PublishOutcome,
+} from "@/lib/social-publish";
 
 export const dynamic = "force-dynamic";
 
 const PublishSchema = z.object({
-  platform: z.literal("instagram").default("instagram"),
-  caption: z.string().max(2200).optional(),
+  platform: z.enum(["instagram", "youtube", "both"]).default("instagram"),
+  caption: z.string().max(4900).optional(),
   force: z.boolean().optional(),
 });
 
@@ -25,7 +29,7 @@ export async function POST(
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json(
-      { error: "Sign in to publish clips to Instagram." },
+      { error: "Sign in to publish clips." },
       { status: 401 }
     );
   }
@@ -57,13 +61,48 @@ export async function POST(
     );
   }
 
-  const result = await publishClipToInstagram({
-    clipId: id,
-    userId: user.id,
-    caption: parsed.data.caption,
-    mode: "manual",
-    force: parsed.data.force,
-  });
+  const platform = parsed.data.platform;
+
+  if (platform === "both") {
+    const [instagram, youtube] = await Promise.all([
+      publishClipToInstagram({
+        clipId: id,
+        userId: user.id,
+        caption: parsed.data.caption,
+        mode: "manual",
+        force: parsed.data.force,
+      }),
+      publishClipToYouTube({
+        clipId: id,
+        userId: user.id,
+        description: parsed.data.caption,
+        mode: "manual",
+        force: parsed.data.force,
+      }),
+    ]);
+    const ok = instagram.ok || youtube.ok;
+    return NextResponse.json(
+      { ok, instagram, youtube, post: instagram.post || youtube.post },
+      { status: ok ? 200 : 400 }
+    );
+  }
+
+  const result: PublishOutcome =
+    platform === "youtube"
+      ? await publishClipToYouTube({
+          clipId: id,
+          userId: user.id,
+          description: parsed.data.caption,
+          mode: "manual",
+          force: parsed.data.force,
+        })
+      : await publishClipToInstagram({
+          clipId: id,
+          userId: user.id,
+          caption: parsed.data.caption,
+          mode: "manual",
+          force: parsed.data.force,
+        });
 
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }

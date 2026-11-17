@@ -8,6 +8,7 @@ There are two setup steps. Everything else is optional.
 |---|---|---|
 | [1](#step-1--run-the-app) | Run the app | 5 min |
 | [2](#step-2--connect-instagram) | Click **Connect Instagram** | 2 min |
+| [Step 3](#step-3--youtube-shorts-optional) | Connect YouTube (optional) | 2 min |
 | [Optional](#optional-settings-you-may-want) | Hashtags, auto-publish, bucket | 2 min |
 
 You do **not** need a bucket, an S3 account, or to hunt for account IDs. The app
@@ -101,6 +102,42 @@ Shorts post themselves as soon as they render. Individual streams can be set to
 
 ---
 
+## Step 3 — YouTube Shorts (optional)
+
+Same idea as Instagram, and simpler: YouTube takes the file directly, so no
+bucket and no public URL.
+
+1. **Google Cloud Console** → create (or pick) a project → **APIs & Services →
+   Library** → enable **YouTube Data API v3**.
+2. **APIs & Services → OAuth consent screen** → External → add your own Google
+   account as a **test user** (this is what makes connecting possible without
+   Google verification).
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID** →
+   type **Web application** → under *Authorised redirect URIs* add the URL the
+   app shows in **YouTube Shorts → Advanced**:
+   `https://<your-app>/api/social/youtube/oauth/callback`
+4. Copy the **Client ID** and **Client secret**.
+5. In the app: **Publishing → YouTube Shorts → Advanced** → paste both → **Save** →
+   **Connect YouTube** → approve.
+
+Press **Test connection**: you should see the channel name, subscribers and
+"~6 uploads/day".
+
+**Pick visibility** (Public / Unlisted / Private), then either press **Upload
+Short** on a clip or tick **Auto-upload every generated Short** for hands-free
+Shorts. Instagram and YouTube have independent switches, and both honour the
+per-stream overrides.
+
+Two Google limits worth knowing:
+
+- A free project allows **~6 uploads per day** (10,000 units ÷ 1,600 per upload).
+  The app enforces this locally and explains it if Google refuses.
+- While the OAuth app is in **Testing** mode, refresh tokens expire after
+  **7 days**. Publish the app (OAuth consent screen → *Publish app*) to stop
+  that, or just press **Connect YouTube** again.
+
+---
+
 ## Where videos are hosted (default: here)
 
 Instagram never accepts a file upload — it downloads from a URL. The app serves
@@ -128,7 +165,7 @@ hosting**.
 | Show Reel in the main feed | Publishing → checkbox | on |
 | Auto-publish on/off | Publishing → checkbox | off |
 | Per-stream override | Publishing → Per-stream overrides | follow account |
-| Token refresh | Publishing → **Refresh token** | auto every ~60 days if you press it |
+| Token refresh | Publishing → **Refresh token** | press when Instagram warns |
 
 Edit any caption before posting: the caption box on each clip card is
 pre-filled and saved with the post.
@@ -157,6 +194,8 @@ pre-filled and saved with the post.
 | *Redirect URI mismatch* | Meta app redirect list does not include the app URL | Meta dashboard → Instagram Login → add `<your-public-url>/api/social/instagram/oauth/callback` |
 | *Test hosting: cannot reach …/api/health* | The public URL is wrong, or the internet cannot reach this machine | Fix **Video hosting → public address**; deploy or tunnel first |
 | *Video does not meet Reels requirements* | Not MP4/H.264, wrong length/size | Use the app's own Shorts — it renders compliant files |
+| *Google rejected the saved authorization (invalid_grant)* | Access revoked, or a Testing-mode app's 7-day refresh token expired | Reconnect YouTube; publish the OAuth app to stop it |
+| *YouTube's daily API quota is used up* | ~6 uploads/day on a free project | Wait for midnight Pacific, or request a quota increase |
 | *Rate limit / quota* | ~50 posts per 24 h | Wait, or slow auto-publishing |
 | Stuck on *processing* | Instagram could not download the video | Run **Test hosting**; keep the app publicly reachable |
 
@@ -181,8 +220,10 @@ npm run dev                  # develop
 npm run build && npm start   # production
 npm run smoke                # 21 HTTP checks (server must be running)
 npm run test:s3              # S3 signing correctness
-npm run test:social          # 34 checks: publish, hosting, OAuth, refresh, auto-post
+npm run test:social          # 35 checks: Instagram publish, hosting, OAuth, refresh
+npm run test:youtube         # 26 checks: YouTube OAuth, resumable upload, auto-upload
 ```
 
-`test:social` talks to its own mock Meta API and mock bucket, never your account.
+`test:social` and `test:youtube` talk to their own mock Meta/Google APIs, never
+your accounts.
 Start the server with the mock URLs shown in the README for that run.

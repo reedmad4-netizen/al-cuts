@@ -24,6 +24,11 @@ import {
 } from "./instagram";
 import { resolveObjectKey, uploadFile, type S3Config } from "./s3";
 import { buildPublicMediaUrl, hostingWarning } from "./public-media";
+import {
+  buildYouTubeTitle,
+  isYouTubeConfigured,
+  uploadShort,
+} from "./youtube";
 
 const DAILY_PUBLISH_LIMIT = 50;
 const MEDIA_URL_TTL_SECONDS = 24 * 60 * 60;
@@ -355,23 +360,25 @@ export function maybeAutoPublish(params: {
   try {
     const settings = getSocialSettings(userId);
     const enabledByStream = params.autoPublishOverride !== 0;
-    const enabled =
-      enabledByStream &&
+    if (!enabledByStream) return;
+
+    const instagramEnabled =
       settings.instagramAutoPublish &&
       settings.instagramConfigured &&
       settings.storageConfigured;
-    if (!enabled) return;
+    const youtubeEnabled = settings.youtubeAutoPublish && settings.youtubeConfigured;
 
-    const existing = findSocialPostForClip(clipId);
-    if (existing) return;
+    if (instagramEnabled && !findSocialPostForClip(clipId, "instagram")) {
+      void publishClipToInstagram({ clipId, userId, mode: "auto" }).catch(() => {
+        // The post row already records the failure for the UI.
+      });
+    }
 
-    void publishClipToInstagram({
-      clipId,
-      userId,
-      mode: "auto",
-    }).catch(() => {
-      // The post row already records the failure for the UI.
-    });
+    if (youtubeEnabled && !findSocialPostForClip(clipId, "youtube")) {
+      void publishClipToYouTube({ clipId, userId, mode: "auto" }).catch(() => {
+        // The post row already records the failure for the UI.
+      });
+    }
   } catch {
     // Auto-publish is best-effort by design.
   }
@@ -387,4 +394,185 @@ export function clipFilePath(clipId: string): string | null {
   return clip.filePath && fs.existsSync(path.resolve(clip.filePath))
     ? path.resolve(clip.filePath)
     : null;
+}
+
+/* ------------------------------------------------------------------------- */
+/* YouTube Shorts                                                            */
+/* ------------------------------------------------------------------------- */
+
+const YOUTUBE_DAILY_LIMIT = 6;
+
+function youtubeConfigFrom(settings: ReturnType<typeof getSocialSettings>) {
+  return {
+    clientId: settings.youtubeClientId,
+    clientSecret: settings.rawYouTubeClientSecret,
+    refreshToken: settings.rawYouTubeRefreshToken,
+  };
+}
+
+/**
+ * Uploads the vertical Short that pairs with a clip to YouTube.
+ *
+ * YouTube takes the bytes directly, so there is no hosting step — the pipeline
+ * is validate → upload (resumable) → record. Same idempotency and per-clip
+ * status tracking as Instagram, keyed by platform.
+ */
+export async function publishClipToYouTube(params: {
+  clipId: string;
+  userId: string | null;
+  title?: string;
+  description?: string;
+  privacy?: "public" | "unlisted" | "private";
+  mode?: "auto" | "manual";
+  force?: boolean;
+}): Promise<PublishOutcome> {
+  const { clipId, userId } = params;
+  const mode = params.mode ?? "manual";
+
+  if (!userId) {
+    return { ok: false, error: "Sign in to publish clips to YouTube." };
+  }
+
+  const settings = getSocialSettings(userId);
+  if (!isYouTubeConfigured(youtubeConfigFrom(settings))) {
+    return {
+      ok: false,
+      needsAttention: "instagram_not_configured",
+      error:
+        "YouTube is not connected yet. Open Publishing → YouTube and press Connect YouTube.",
+    };
+  }
+
+  const resolved = resolveVerticalClip(clipId);
+  if (!resolved) return { ok: false, error: "Clip not found." };
+  const { target } = resolved;
+
+  if (!params.force) {
+    const existing = findSocialPostForClip(target.id, "youtube");
+    if (
+      existing &&
+      ["published", "uploading", "processing", "creating", "hosting"].includes(
+        existing.status
+      )
+    ) {
+      return {
+        ok: existing.status === "published",
+        post: existing,
+        error:
+          existing.status === "published"
+            ? undefined
+            : "This clip is already being uploaded to YouTube.",
+      };
+    }
+  }
+
+  if (!target.filePath || !fs.existsSync(target.filePath)) {
+    return {
+      ok: false,
+      needsAttention: "invalid_media",
+      error: "The rendered video file is missing on disk — re-render the clip first.",
+    };
+  }
+
+  let probe;
+  try {
+    probe = await probeMedia(target.filePath);
+  } catch (err) {
+    return {
+      ok: false,
+      needsAttention: "invalid_media",
+      error: `Could not inspect the video: ${
+        err instanceof Error ? err.message : "ffprobe failed"
+      }`,
+    };
+  }
+
+  const validation = validateReelsVideo({
+    width: probe.width,
+    height: probe.height,
+    durationSeconds: probe.durationSeconds,
+    fileSizeBytes: probe.fileSizeBytes || fs.statSync(target.filePath).size,
+    videoCodec: probe.videoCodec,
+    audioCodec: probe.audioCodec,
+    hasAudio: probe.hasAudio,
+  });
+  if (!validation.ok) {
+    return {
+      ok: false,
+      needsAttention: "invalid_media",
+      error: `This video cannot be uploaded: ${validation.errors.join(" ")}`,
+      warnings: validation.warnings,
+    };
+  }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const uploadedToday = countPublishedSince(userId, since, "youtube");
+  if (uploadedToday >= YOUTUBE_DAILY_LIMIT) {
+    return {
+      ok: false,
+      needsAttention: "quota",
+      error: `YouTube's free API quota allows about ${YOUTUBE_DAILY_LIMIT} uploads per day (1,600 units each). Try again after midnight Pacific, or raise the quota in Google Cloud.`,
+    };
+  }
+
+  const title = (params.title?.trim() || buildYouTubeTitle(target)).slice(0, 100);
+  const description =
+    params.description?.trim() ||
+    buildInstagramCaption(target, {
+      hashtags: settings.instagramHashtags,
+      includeChannel: true,
+    });
+
+  let post = createSocialPost({
+    id: `post-${crypto.randomUUID().slice(0, 10)}`,
+    userId,
+    clipId: target.id,
+    platform: "youtube",
+    mode,
+    caption: title,
+    status: "queued",
+  });
+  broadcastWs("social_post_updated", post);
+
+  try {
+    post = updateSocialPost(post.id, {
+      status: "uploading",
+      attempts: post.attempts + 1,
+    })!;
+    broadcastWs("social_post_updated", post);
+
+    const result = await uploadShort(youtubeConfigFrom(settings), {
+      filePath: target.filePath,
+      title,
+      description,
+      privacyStatus: params.privacy ?? settings.youtubePrivacy,
+      categoryId: settings.youtubeCategoryId,
+      madeForKids: settings.youtubeMadeForKids,
+    });
+
+    post = updateSocialPost(post.id, {
+      status: "published",
+      remoteMediaId: result.videoId,
+      permalink: result.permalink,
+      publishedAt: new Date().toISOString(),
+      error: "",
+    })!;
+    broadcastWs("social_post_updated", post);
+
+    return { ok: true, post, warnings: validation.warnings };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "YouTube upload failed.";
+    const hint =
+      err instanceof Error && "hint" in err
+        ? String((err as { hint?: string }).hint || "")
+        : "";
+    post =
+      updateSocialPost(post.id, {
+        status: "failed",
+        error: hint ? `${message} — ${hint}` : message,
+      }) ?? post;
+    broadcastWs("social_post_updated", post);
+    return { ok: false, post, error: message, hint };
+  }
 }

@@ -402,6 +402,15 @@ built-in signed media hosting (no bucket), one-click OAuth connect that discover
 the account id and upgrades to a 60-day token, in-place token refresh, a two-step
 Setup checklist, and the 16-field form collapsed behind *Advanced*.
 
+### YouTube Shorts (v1.7.0)
+Same publish pipeline, second platform. YouTube accepts bytes directly, so the
+hosting step disappears (validate → resumable upload → record). OAuth with
+`access_type=offline` gives a durable refresh token; access tokens are refreshed
+transparently. Platform is a column on `social_posts`, so history, idempotency
+and quota checks are per-platform, and auto-publish fans out to both
+independently. The hard constraint is Google's quota: 1,600 units per upload
+against 10,000/day free — ~6 uploads, surfaced in the UI and in error messages.
+
 ### Still open
 Podcast-style scheduling, carousel/Story targets, token refresh automation
 (long-lived tokens expire after ~60 days), and per-account multi-tenant bucket

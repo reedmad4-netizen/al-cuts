@@ -13,6 +13,8 @@ function publicShape(userId: string) {
     rawInstagramToken,
     rawStorageSecret,
     rawMetaAppSecret,
+    rawYouTubeClientSecret,
+    rawYouTubeRefreshToken,
     ...rest
   } = settings;
   return {
@@ -20,6 +22,8 @@ function publicShape(userId: string) {
     instagramAccessToken: rawInstagramToken ? MASK : "",
     storageSecretAccessKey: rawStorageSecret ? MASK : "",
     metaAppSecret: rawMetaAppSecret ? MASK : "",
+    youtubeClientSecret: rawYouTubeClientSecret ? MASK : "",
+    youtubeRefreshToken: rawYouTubeRefreshToken ? MASK : "",
     // Surfaced so the UI can explain exactly what is missing.
     instagramReady: rest.instagramConfigured,
     storageReady: rest.storageConfigured,
@@ -55,6 +59,15 @@ const UpdateSchema = z.object({
   storagePrefix: z.string().max(128).optional(),
   storagePublicBaseUrl: z.string().max(300).optional(),
   storageForcePathStyle: z.boolean().optional(),
+  youtubeClientId: z.string().max(200).optional(),
+  youtubeClientSecret: z.string().max(300).optional(),
+  youtubeRefreshToken: z.string().max(500).optional(),
+  youtubeChannelId: z.string().max(64).optional(),
+  youtubeChannelTitle: z.string().max(200).optional(),
+  youtubePrivacy: z.enum(["public", "unlisted", "private"]).optional(),
+  youtubeCategoryId: z.string().max(8).optional(),
+  youtubeMadeForKids: z.boolean().optional(),
+  youtubeAutoPublish: z.boolean().optional(),
 });
 
 export async function PUT(req: Request) {

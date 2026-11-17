@@ -147,6 +147,13 @@ async function main() {
     `got ${guestPublish.res.status}`
   );
 
+  const guestYouTube = await req("/api/social/youtube/verify", { method: "POST" });
+  check(
+    "anonymous YouTube verify → 401",
+    guestYouTube.res.status === 401 || guestYouTube.res.status === 429,
+    `got ${guestYouTube.res.status}`
+  );
+
   const guestSocialSettings = await req("/api/social/settings");
   check(
     "anonymous social settings → 401",

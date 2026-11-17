@@ -255,6 +255,18 @@ alter table public.user_settings add column if not exists storage_mode text not 
   check (storage_mode in ('builtin', 's3'));
 alter table public.user_settings add column if not exists public_base_url text not null default '';
 
+-- YouTube Shorts uploads (Google OAuth: long-lived refresh token)
+alter table public.user_settings add column if not exists youtube_client_id text not null default '';
+alter table public.user_settings add column if not exists youtube_client_secret text not null default '';
+alter table public.user_settings add column if not exists youtube_refresh_token text not null default '';
+alter table public.user_settings add column if not exists youtube_channel_id text not null default '';
+alter table public.user_settings add column if not exists youtube_channel_title text not null default '';
+alter table public.user_settings add column if not exists youtube_privacy text not null default 'public'
+  check (youtube_privacy in ('public', 'unlisted', 'private'));
+alter table public.user_settings add column if not exists youtube_category_id text not null default '20';
+alter table public.user_settings add column if not exists youtube_made_for_kids integer not null default 0;
+alter table public.user_settings add column if not exists youtube_auto_publish integer not null default 0;
+
 alter table public.user_settings add column if not exists storage_endpoint text not null default '';
 alter table public.user_settings add column if not exists storage_region text not null default 'auto';
 alter table public.user_settings add column if not exists storage_bucket text not null default '';
@@ -272,10 +284,10 @@ create table if not exists public.social_posts (
   id text primary key,
   user_id text references public.users(id) on delete cascade,
   clip_id text not null references public.clips(id) on delete cascade,
-  platform text not null default 'instagram' check (platform in ('instagram')),
+  platform text not null default 'instagram' check (platform in ('instagram', 'youtube')),
   mode text not null default 'manual' check (mode in ('manual', 'auto')),
   status text not null default 'queued'
-    check (status in ('queued', 'hosting', 'creating', 'processing', 'published', 'failed')),
+    check (status in ('queued', 'uploading', 'hosting', 'creating', 'processing', 'published', 'failed')),
   caption text not null default '',
   media_key text not null default '',
   media_url_expires_at timestamptz,

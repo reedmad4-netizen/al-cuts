@@ -1,4 +1,4 @@
-# CLIPX AI — AI-Powered Automatic Gaming Clip Generator (v1.6.0)
+# CLIPX AI — AI-Powered Automatic Gaming Clip Generator (v1.7.0)
 
 **CLIPX AI** is a full-stack SaaS web application that connects to **any public Twitch, YouTube Live, Kick, or HLS (`.m3u8`) gaming stream in native `1080p60 (Source)` quality with ZERO API keys** (plus local video uploads), maintains a **live rolling 20-second pre-event buffer**, streams **real-time live viewer chat**, detects viral gameplay hype spikes, scores highlights **0–100**, and **automatically generates & downloads BOTH a lossless `1920×1080 @ 60fps` Original MP4 AND a full-length, full-frame `1080×1920 @ 60fps` Vertical Short MP4** (up to full 60s Shorts length, nothing cropped off) — pausing auto-download with a warning if copyrighted music is detected (audio never modified without permission).
 
@@ -135,15 +135,15 @@ Once connected:
 6. **Live Chat Monitor (`/chat`)** — WebSocket-streamed chat feed, live velocity indicator (`msg/min`), interactive message tester, and surge log showing both saved clips and duplicate-suppressed bursts
 7. **Downloads & Export Log (`/downloads`)** — Ready-to-export owned clips with real XHR download progress bar, pre-export copyright warning modal (never auto-strips audio), and persistent export history
 8. **Settings (`/settings`)** — Post-event capture duration (`5–15s`), minimum AI score threshold, duplicate cooldown window, chat spike multiplier, copyright warning preferences, official Twitch/YouTube/Kick API keys, and demo data reset
-9. **Publishing (`/publishing`)** — Connect an Instagram Business/Creator account + S3-compatible bucket, verify both, publish a Short as a Reel in one click, or switch on hands-free auto-publish with per-stream overrides and a publishing history
+9. **Publishing (`/publishing`)** — Connect **Instagram Reels** and **YouTube Shorts** with one click each, publish manually or hands-free (per-stream overrides), edit captions, and see every publish with its permalink
 10. **Login & Register (`/auth`)** — Sign in, create an account, or use 1-Click Demo Login
 
 ---
 
-## Automatic Instagram Reels Upload (optional)
+## Automatic uploads — Instagram Reels + YouTube Shorts (optional)
 
-Every generated **9:16 Short** can go straight to Instagram Reels — with one
-click, or fully hands-free.
+Every generated **9:16 Short** can publish itself to **Instagram Reels** and/or
+**YouTube Shorts** — with one click each, or fully hands-free.
 
 **Two-minute setup:** see [`GETTING-STARTED.md`](./GETTING-STARTED.md). Short
 version:
@@ -195,11 +195,43 @@ masked.
 - Only clips you own can be published; the demo sample clip belongs to the demo
   account.
 
-### Verify without Instagram
+### YouTube Shorts
+
+YouTube is the easier of the two: it accepts the file directly, so **no bucket,
+no public URL** is involved — the app streams the rendered Short to Google.
+
+Connect once: **Publishing → YouTube Shorts → Connect YouTube** (add your Google
+OAuth client id + secret under *Advanced* first). The OAuth flow requests
+`youtube.upload` with `access_type=offline`, so the stored **refresh token can be
+reused forever**; access tokens are refreshed automatically.
+
+| Setting | Default | Notes |
+|---|---|---|
+| Visibility | Public | Public / Unlisted / Private |
+| Category | Gaming (20) | Any YouTube category id |
+| Made for kids | off | Leave off for gaming clips |
+| Auto-upload | off | Independent of the Instagram toggle |
+
+What the uploader does:
+
+- validates the file first (MP4 · H.264/HEVC · AAC · 3–900 s · ≤128 MB),
+- titles it `<clip title> #Shorts`, description = the generated caption,
+- uses the **resumable upload** protocol (`X-Upload-Content-Length` declared up
+  front, bytes in one PUT), and stores the `youtube.com/shorts/<id>` permalink,
+- translates Google's errors — quota, revoked grant, missing scope, no channel.
+
+> **Quota reality:** a free Google Cloud project gets 10,000 units/day and one
+> upload costs 1,600 → **~6 uploads per day**. That is Google's limit, not the
+> app's; the UI shows it and the error message explains how to raise it. Also,
+> while a Google OAuth app is in *Testing* mode its refresh tokens expire after
+> 7 days — publish the app (or reconnect) when that happens.
+
+### Verify without touching the real platforms
 
 ```bash
-npm run test:s3        # SigV4 differential test vs aws4
-npm run test:social    # 34 checks against a mock Meta API + mock bucket
+npm run test:s3         # SigV4 differential test vs aws4
+npm run test:social     # 35 checks: Instagram publish flow, hosting, OAuth
+npm run test:youtube    # 26 checks: YouTube OAuth, resumable upload, auto-upload
 ```
 
 `test:social` needs the server started with:
@@ -210,6 +242,16 @@ IG_OAUTH_AUTHORIZE_URL=http://127.0.0.1:3900/oauth/authorize \
 IG_OAUTH_TOKEN_URL=http://127.0.0.1:3900/oauth/access_token \
 IG_LONG_LIVED_URL=http://127.0.0.1:3900/access_token \
 IG_REFRESH_URL=http://127.0.0.1:3900/refresh_access_token \
+npm start
+```
+
+`test:youtube` needs:
+
+```bash
+YT_API_BASE=http://127.0.0.1:3901/youtube/v3 \
+YT_UPLOAD_BASE=http://127.0.0.1:3901/upload/youtube/v3 \
+YT_OAUTH_TOKEN_URL=http://127.0.0.1:3901/token \
+YT_OAUTH_AUTHORIZE_URL=http://127.0.0.1:3901/auth \
 npm start
 ```
 

@@ -1,6 +1,6 @@
 {
   "name": "clipx-ai",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "description": "CLIPX AI — AI-Powered Automatic Gaming Clip Generator (Zero Native Build Tools Required)",
   "scripts": {
@@ -10,7 +10,8 @@
     "seed:media": "node scripts/generate-sample-media.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "test:s3": "node scripts/test-s3-signer.mjs",
-    "test:social": "node scripts/test-instagram-flow.mjs"
+    "test:social": "node scripts/test-instagram-flow.mjs",
+    "test:youtube": "node scripts/test-youtube-flow.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

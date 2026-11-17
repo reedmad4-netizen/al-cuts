@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Instagram,
   Loader2,
+  Youtube,
   RefreshCw,
   Send,
   ShieldCheck,
@@ -31,6 +32,16 @@ interface SocialSettingsView {
   metaAppSecret: string;
   storageMode: "builtin" | "s3";
   publicBaseUrl: string;
+  youtubeConfigured: boolean;
+  youtubeClientId: string;
+  youtubeClientSecret: string;
+  youtubeRefreshToken: string;
+  youtubeChannelId: string;
+  youtubeChannelTitle: string;
+  youtubePrivacy: "public" | "unlisted" | "private";
+  youtubeCategoryId: string;
+  youtubeMadeForKids: boolean;
+  youtubeAutoPublish: boolean;
   instagramAutoPublish: boolean;
   instagramShareToFeed: boolean;
   instagramHashtags: string;
@@ -51,6 +62,7 @@ interface SocialSettingsView {
 interface SocialPostView {
   id: string;
   clipId: string;
+  platform: string;
   status: string;
   mode: string;
   caption: string;
@@ -70,6 +82,16 @@ const EMPTY_SETTINGS: SocialSettingsView = {
   metaAppSecret: "",
   storageMode: "builtin",
   publicBaseUrl: "",
+  youtubeConfigured: false,
+  youtubeClientId: "",
+  youtubeClientSecret: "",
+  youtubeRefreshToken: "",
+  youtubeChannelId: "",
+  youtubeChannelTitle: "",
+  youtubePrivacy: "public",
+  youtubeCategoryId: "20",
+  youtubeMadeForKids: false,
+  youtubeAutoPublish: false,
   instagramAutoPublish: false,
   instagramShareToFeed: true,
   instagramHashtags: "#gaming #gamingclips #reels #clipxai",
@@ -161,8 +183,20 @@ export default function PublishingPage() {
   } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [ytAdvancedOpen, setYtAdvancedOpen] = useState(false);
+  const [verifyingYt, setVerifyingYt] = useState(false);
+  const [ytResult, setYtResult] = useState<{
+    ok: boolean;
+    channel?: { title?: string; handle?: string; subscribers?: string };
+    quota?: { uploadsPerDay: number };
+    error?: string;
+    hint?: string;
+  } | null>(null);
   const [redirectUri, setRedirectUri] = useState(
     "/api/social/instagram/oauth/callback"
+  );
+  const [ytRedirectUri, setYtRedirectUri] = useState(
+    "/api/social/youtube/oauth/callback"
   );
   const [connectBanner, setConnectBanner] = useState<{
     ok: boolean;
@@ -215,6 +249,9 @@ export default function PublishingPage() {
   useEffect(() => {
     setRedirectUri(
       `${window.location.origin}/api/social/instagram/oauth/callback`
+    );
+    setYtRedirectUri(
+      `${window.location.origin}/api/social/youtube/oauth/callback`
     );
   }, []);
 
@@ -289,6 +326,13 @@ export default function PublishingPage() {
           metaAppSecret: settings.metaAppSecret,
           storageMode: settings.storageMode,
           publicBaseUrl: settings.publicBaseUrl,
+          youtubeClientId: settings.youtubeClientId,
+          youtubeClientSecret: settings.youtubeClientSecret,
+          youtubeRefreshToken: settings.youtubeRefreshToken,
+          youtubePrivacy: settings.youtubePrivacy,
+          youtubeCategoryId: settings.youtubeCategoryId,
+          youtubeMadeForKids: settings.youtubeMadeForKids,
+          youtubeAutoPublish: settings.youtubeAutoPublish,
           instagramAutoPublish: settings.instagramAutoPublish,
           instagramShareToFeed: settings.instagramShareToFeed,
           instagramHashtags: settings.instagramHashtags,
@@ -342,6 +386,48 @@ export default function PublishingPage() {
       return;
     }
     window.location.href = "/api/social/instagram/oauth/start";
+  }
+
+  function startYouTubeConnect() {
+    if (!settings.youtubeClientId || !settings.youtubeClientSecret) {
+      setYtAdvancedOpen(true);
+      notify({
+        type: "info",
+        title: "Add your Google OAuth client id + secret first",
+        description:
+          "Create them in Google Cloud Console → APIs & Services → Credentials → OAuth client (Web application). Stored server-side.",
+      });
+      return;
+    }
+    window.location.href = "/api/social/youtube/oauth/start";
+  }
+
+  async function handleVerifyYouTube() {
+    setVerifyingYt(true);
+    setYtResult(null);
+    try {
+      const res = await fetch("/api/social/youtube/verify", { method: "POST" });
+      const data = await res.json();
+      setYtResult(data);
+      notify({
+        type: data.ok ? "success" : "warning",
+        title: data.ok
+          ? `YouTube: ${data.channel?.title || "connected"}`
+          : "YouTube check failed",
+        description: data.ok
+          ? `About ${data.quota?.uploadsPerDay ?? 6} uploads/day on the free API quota.`
+          : data.error,
+      });
+      void loadAll();
+    } catch (err) {
+      notify({
+        type: "error",
+        title: "YouTube check failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setVerifyingYt(false);
+    }
   }
 
   async function handleRefreshToken() {
@@ -409,14 +495,17 @@ export default function PublishingPage() {
     }
   }
 
-  async function handlePublish(clip: ClipRecord) {
-    setPublishingId(clip.id);
+  async function handlePublish(
+    clip: ClipRecord,
+    platform: "instagram" | "youtube" = "instagram"
+  ) {
+    setPublishingId(`${clip.id}:${platform}`);
     try {
       const res = await fetch(`/api/clips/${encodeURIComponent(clip.id)}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          platform: "instagram",
+          platform,
           caption: captionDrafts[clip.id]?.trim() || undefined,
         }),
       });
@@ -424,8 +513,12 @@ export default function PublishingPage() {
       if (!res.ok) throw new Error(data.error || "Publish failed.");
       notify({
         type: "success",
-        title: "Reel published",
-        description: data.post?.permalink || "Instagram accepted the post.",
+        title: platform === "youtube" ? "Short uploaded" : "Reel published",
+        description:
+          data.post?.permalink ||
+          (platform === "youtube"
+            ? "YouTube accepted the upload."
+            : "Instagram accepted the post."),
       });
       void loadAll();
     } catch (err) {
@@ -474,8 +567,8 @@ export default function PublishingPage() {
     }
   }
 
-  function latestPost(clipId: string): SocialPostView | undefined {
-    return posts.find((p) => p.clipId === clipId);
+  function latestPost(clipId: string, platform = "instagram"): SocialPostView | undefined {
+    return posts.find((p) => p.clipId === clipId && p.platform === platform);
   }
 
   if (!user) {
@@ -547,6 +640,17 @@ export default function PublishingPage() {
             />
             <SetupStep
               n={2}
+              done={settings.youtubeConfigured}
+              title="Connect YouTube (optional)"
+              detail={
+                settings.youtubeConfigured
+                  ? "YouTube connected — Shorts upload straight from this server, no bucket."
+                  : "Same idea: click Connect, approve in Google. Only needed if you want Shorts there too."
+              }
+              action={null}
+            />
+            <SetupStep
+              n={3}
               done={settings.storageReady}
               title="Choose where videos are hosted"
               detail={
@@ -838,6 +942,207 @@ export default function PublishingPage() {
           </div>
         </section>
 
+        {/* ---------- YouTube ---------- */}
+        <section className="rounded-xl border border-zinc-200 bg-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Youtube size={18} className="text-red-600" />
+              <h2 className="text-base font-semibold text-zinc-900">YouTube Shorts</h2>
+              <StatusPill ok={settings.youtubeConfigured}>
+                {settings.youtubeConfigured
+                  ? settings.youtubeChannelTitle
+                    ? `@${settings.youtubeChannelTitle}`
+                    : "Connected"
+                  : "Not connected"}
+              </StatusPill>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={startYouTubeConnect}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                <Youtube size={14} />
+                {settings.youtubeConfigured ? "Reconnect YouTube" : "Connect YouTube"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleVerifyYouTube()}
+                disabled={verifyingYt || !settings.youtubeConfigured}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {verifyingYt ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                Test connection
+              </button>
+            </div>
+          </div>
+
+          <p className="mt-2 text-[13px] text-zinc-600">
+            YouTube accepts the file directly, so this needs no bucket. Vertical Shorts land on
+            the channel as Shorts; each upload costs 1,600 of the 10,000 free daily API units,
+            i.e. about <strong>{6} uploads a day</strong>.
+          </p>
+
+          {ytResult && (
+            <div
+              className={`mt-3 rounded-lg border p-3 text-[13px] ${
+                ytResult.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              {ytResult.ok ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <CheckCircle2 size={14} />
+                  <span className="font-medium">{ytResult.channel?.title}</span>
+                  {ytResult.channel?.subscribers && (
+                    <span className="text-emerald-700/80">
+                      {ytResult.channel.subscribers} subscribers
+                    </span>
+                  )}
+                  <span className="text-emerald-700/80">
+                    ~{ytResult.quota?.uploadsPerDay ?? 6} uploads/day
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex items-start gap-2 font-medium">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    {ytResult.error}
+                  </div>
+                  {ytResult.hint && <p className="text-amber-800/80">{ytResult.hint}</p>}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-zinc-600">Visibility</span>
+              <select
+                value={settings.youtubePrivacy}
+                onChange={(e) =>
+                  patch("youtubePrivacy", e.target.value as "public" | "unlisted" | "private")
+                }
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+              >
+                <option value="public">Public</option>
+                <option value="unlisted">Unlisted</option>
+                <option value="private">Private</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-zinc-600">Category</span>
+              <select
+                value={settings.youtubeCategoryId}
+                onChange={(e) => patch("youtubeCategoryId", e.target.value)}
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+              >
+                <option value="20">Gaming</option>
+                <option value="24">Entertainment</option>
+                <option value="17">Sports</option>
+                <option value="22">People &amp; Blogs</option>
+                <option value="10">Music</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            <label className="flex items-start gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={settings.youtubeAutoPublish}
+                onChange={(e) => patch("youtubeAutoPublish", e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <strong>Auto-upload every generated Short</strong> — hands-free Shorts, works
+                alongside Instagram.
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={settings.youtubeMadeForKids}
+                onChange={(e) => patch("youtubeMadeForKids", e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>Made for kids (limits features; leave off for gaming clips)</span>
+            </label>
+          </div>
+
+          <details
+            open={ytAdvancedOpen}
+            onToggle={(e) => setYtAdvancedOpen((e.target as HTMLDetailsElement).open)}
+            className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-3"
+          >
+            <summary className="cursor-pointer text-[13px] font-medium text-zinc-700">
+              Advanced — Google OAuth client credentials or a pasted refresh token
+              {!settings.youtubeConfigured && !settings.youtubeClientId && (
+                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                  needed for one-click
+                </span>
+              )}
+            </summary>
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+              Google Cloud Console → APIs &amp; Services → enable <em>YouTube Data API v3</em> →
+              Credentials → <em>OAuth client ID</em> (Web application) → add this redirect URI:
+            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1 text-[11px] text-zinc-700">
+                {ytRedirectUri}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(ytRedirectUri);
+                  notify({ type: "success", title: "Copied redirect URI" });
+                }}
+                className="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Copy
+              </button>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-zinc-600">
+                  Google client id
+                </span>
+                <input
+                  value={settings.youtubeClientId}
+                  onChange={(e) => patch("youtubeClientId", e.target.value)}
+                  placeholder="1234-abcd.apps.googleusercontent.com"
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-zinc-600">
+                  Google client secret
+                </span>
+                <input
+                  type="password"
+                  value={settings.youtubeClientSecret}
+                  onChange={(e) => patch("youtubeClientSecret", e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-medium text-zinc-600">
+                  Refresh token (only if you already have one)
+                </span>
+                <input
+                  type="password"
+                  value={settings.youtubeRefreshToken}
+                  onChange={(e) => patch("youtubeRefreshToken", e.target.value)}
+                  placeholder="1//…"
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+                />
+              </label>
+            </div>
+          </details>
+        </section>
+
         {/* ---------- Storage ---------- */}
         <section className="rounded-xl border border-zinc-200 bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1127,8 +1432,10 @@ export default function PublishingPage() {
           ) : (
             <div className="mt-4 space-y-3">
               {shorts.slice(0, 8).map((clip) => {
-                const post = latestPost(clip.id);
-                const isPublishing = publishingId === clip.id;
+                const post = latestPost(clip.id, "instagram");
+                const ytPost = latestPost(clip.id, "youtube");
+                const isPublishing = publishingId === `${clip.id}:instagram`;
+                const isUploadingYt = publishingId === `${clip.id}:youtube`;
                 const vertical = clip.aspectRatio === "9:16";
                 return (
                   <div
@@ -1178,7 +1485,7 @@ export default function PublishingPage() {
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => void handlePublish(clip)}
+                          onClick={() => void handlePublish(clip, "instagram")}
                           disabled={
                             isPublishing ||
                             !settings.instagramReady ||
@@ -1197,9 +1504,56 @@ export default function PublishingPage() {
                           {post?.status === "published" ? "Republish Reel" : "Publish to Instagram"}
                         </button>
 
+                        <button
+                          type="button"
+                          onClick={() => void handlePublish(clip, "youtube")}
+                          disabled={
+                            isUploadingYt ||
+                            !settings.youtubeConfigured ||
+                            ytPost?.status === "uploading" ||
+                            ytPost?.status === "processing"
+                          }
+                          className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={
+                            settings.youtubeConfigured
+                              ? "Upload as a YouTube Short"
+                              : "Connect YouTube first"
+                          }
+                        >
+                          {isUploadingYt ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Youtube size={14} />
+                          )}
+                          {ytPost?.status === "published" ? "Re-upload Short" : "Upload Short"}
+                        </button>
+
                         {!vertical && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-amber-700">
                             <AlertTriangle size={11} /> Landscape — the Reel will be letterboxed
+                          </span>
+                        )}
+
+                        {ytPost && (
+                          <span className="text-[11px] text-zinc-500">
+                            {ytPost.status === "published" ? (
+                              <a
+                                href={ytPost.permalink || "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-emerald-700 underline"
+                              >
+                                YouTube {formatRelativeTime(ytPost.publishedAt || ytPost.createdAt)}
+                                <ExternalLink size={10} />
+                              </a>
+                            ) : ytPost.status === "failed" ? (
+                              <span className="text-red-600">{ytPost.error}</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-amber-700">
+                                <Loader2 size={10} className="animate-spin" />
+                                YouTube {ytPost.status}…
+                              </span>
+                            )}
                           </span>
                         )}
 
@@ -1243,6 +1597,15 @@ export default function PublishingPage() {
                 <div key={post.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-[13px]">
                   <div className="min-w-0">
                     <span
+                      className={`mr-1 rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                        post.platform === "youtube"
+                          ? "bg-red-50 text-red-700"
+                          : "bg-pink-50 text-pink-700"
+                      }`}
+                    >
+                      {post.platform === "youtube" ? "YouTube" : "Instagram"}
+                    </span>
+                    <span
                       className={`mr-2 rounded px-1.5 py-0.5 text-[11px] font-medium ${
                         post.status === "published"
                           ? "bg-emerald-50 text-emerald-700"
@@ -1268,7 +1631,8 @@ export default function PublishingPage() {
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 text-brand-600 underline"
                     >
-                      View Reel <ExternalLink size={11} />
+                      {post.platform === "youtube" ? "View Short" : "View Reel"}{" "}
+                      <ExternalLink size={11} />
                     </a>
                   )}
                 </div>
