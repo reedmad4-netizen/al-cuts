@@ -41,6 +41,18 @@ needs the following before it faces the internet:
 - [ ] Run `npm run smoke` after every deploy; it asserts the authorization and
       session-forgery regressions stay fixed.
 
+## Instagram publishing (1.6.0)
+
+- The Instagram access token and S3 secret key are stored **server-side only**;
+  the API returns them masked (`••••••••`) and a masked value means "unchanged".
+- Publishing requires an authenticated session **and** clip ownership; the
+  publish endpoint is rate limited.
+- Every upload uses a per-object signed request; Instagram receives a
+  time-limited URL (24 h) rather than long-lived credentials.
+- Only publish clips you own or are authorized to republish. Uploading other
+  creators' gameplay may breach the platform's terms and copyright — the app
+  records the authorization flag on every stream.
+
 ## Security measures in 1.5.0
 
 - No default/hardcoded JWT secret; tokens are HS256 with an env-provided or

@@ -7,6 +7,7 @@ import {
   Download,
   Film,
   Home,
+  Instagram,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/clips", label: "Generated Clips", icon: Film },
   { href: "/editor", label: "Video Editor", icon: Scissors },
   { href: "/downloads", label: "Downloads", icon: Download },
+  { href: "/publishing", label: "Publishing", icon: Instagram },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

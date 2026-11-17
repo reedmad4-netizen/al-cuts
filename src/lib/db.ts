@@ -350,6 +350,29 @@ function initSchema(db: SqlDatabase) {
     CREATE INDEX IF NOT EXISTS idx_clips_score ON clips(ai_score DESC);
     CREATE INDEX IF NOT EXISTS idx_chat_stream ON chat_messages(stream_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_surges_created ON chat_surges(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS social_posts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL DEFAULT 'instagram',
+      mode TEXT NOT NULL DEFAULT 'manual',
+      status TEXT NOT NULL DEFAULT 'queued',
+      caption TEXT NOT NULL DEFAULT '',
+      media_key TEXT NOT NULL DEFAULT '',
+      media_url_expires_at TEXT,
+      container_id TEXT NOT NULL DEFAULT '',
+      remote_media_id TEXT NOT NULL DEFAULT '',
+      permalink TEXT NOT NULL DEFAULT '',
+      error TEXT NOT NULL DEFAULT '',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      published_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_social_posts_clip ON social_posts(clip_id);
+    CREATE INDEX IF NOT EXISTS idx_social_posts_status ON social_posts(status, created_at DESC);
   `);
 
   // Seamless schema migration for existing v1.0–v1.2 databases
@@ -365,6 +388,27 @@ function initSchema(db: SqlDatabase) {
   ensureColumn("user_settings", "auto_shorts_enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn("user_settings", "auto_shorts_caption", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn("user_settings", "auto_download_enabled", "INTEGER NOT NULL DEFAULT 1");
+  // Instagram publishing + S3-compatible media hosting (v1.6.0)
+  ensureColumn("user_settings", "instagram_user_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "instagram_access_token", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "instagram_api_version", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "instagram_auto_publish", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("user_settings", "instagram_share_to_feed", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(
+    "user_settings",
+    "instagram_hashtags",
+    "TEXT NOT NULL DEFAULT '#gaming #gamingclips #reels #clipxai'"
+  );
+  ensureColumn("user_settings", "storage_endpoint", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "storage_region", "TEXT NOT NULL DEFAULT 'auto'");
+  ensureColumn("user_settings", "storage_bucket", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "storage_access_key_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "storage_secret_access_key", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "storage_prefix", "TEXT NOT NULL DEFAULT 'clipx'");
+  ensureColumn("user_settings", "storage_public_base_url", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "storage_force_path_style", "INTEGER NOT NULL DEFAULT 1");
+  // Per-stream override: -1 inherit the account default, 0 off, 1 on
+  ensureColumn("streams", "auto_publish_enabled", "INTEGER NOT NULL DEFAULT -1");
   ensureColumn("streams", "hype_threshold", "INTEGER NOT NULL DEFAULT 70");
   ensureColumn("streams", "video_quality", "TEXT NOT NULL DEFAULT '1080p_source'");
   ensureColumn("streams", "shorts_layout", "TEXT NOT NULL DEFAULT 'fit_blur'");
@@ -903,6 +947,10 @@ export function mapStreamRow(row: Record<string, unknown>): StreamRecord {
       row.auto_download_enabled === undefined
         ? true
         : Boolean(row.auto_download_enabled),
+    autoPublishEnabled:
+      row.auto_publish_enabled === undefined
+        ? -1
+        : Number(row.auto_publish_enabled),
     dedupeCooldownSeconds: Number(row.dedupe_cooldown_seconds || 25),
     lastClipEventAt: row.last_clip_event_at ? String(row.last_clip_event_at) : null,
     createdAt: String(row.created_at),
@@ -1155,4 +1203,410 @@ export function getEffectiveSettings(userId: string | null): UserSettings & {
       row.kick_api_token || process.env.KICK_API_TOKEN || ""
     ),
   };
+}
+
+/* ------------------------------------------------------------------------- */
+/* Social publishing settings & queue (Instagram)                             */
+/* ------------------------------------------------------------------------- */
+
+export interface SocialSettings {
+  userId: string;
+  instagramUserId: string;
+  instagramApiVersion: string;
+  instagramAutoPublish: boolean;
+  instagramShareToFeed: boolean;
+  instagramHashtags: string;
+  instagramConfigured: boolean;
+  storageEndpoint: string;
+  storageRegion: string;
+  storageBucket: string;
+  storageAccessKeyId: string;
+  storagePrefix: string;
+  storagePublicBaseUrl: string;
+  storageForcePathStyle: boolean;
+  storageConfigured: boolean;
+}
+
+export interface SocialSettingsWithSecrets extends SocialSettings {
+  rawInstagramToken: string;
+  rawStorageSecret: string;
+}
+
+function socialDefaults(userId: string) {
+  return {
+    instagram_user_id: "",
+    instagram_access_token: "",
+    instagram_api_version: "",
+    instagram_auto_publish: 0,
+    instagram_share_to_feed: 1,
+    instagram_hashtags: "#gaming #gamingclips #reels #clipxai",
+    storage_endpoint: "",
+    storage_region: "auto",
+    storage_bucket: "",
+    storage_access_key_id: "",
+    storage_secret_access_key: "",
+    storage_prefix: "clipx",
+    storage_public_base_url: "",
+    storage_force_path_style: 1,
+  } as Record<string, unknown>;
+}
+
+/**
+ * Reads Instagram + storage configuration with environment fallbacks, so a
+ * deployment can be configured entirely from env without touching the UI.
+ */
+export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
+  const db = getDb();
+  db.prepare(
+    "INSERT OR IGNORE INTO user_settings (user_id, updated_at) VALUES (?, ?)"
+  ).run(userId, new Date().toISOString());
+
+  const row =
+    (db
+      .prepare("SELECT * FROM user_settings WHERE user_id = ?")
+      .get(userId) as Record<string, unknown> | undefined) || {};
+
+  const pick = (column: string, envKey: string): string => {
+    const fromRow = row[column];
+    if (fromRow !== undefined && fromRow !== null && String(fromRow).trim() !== "") {
+      return String(fromRow).trim();
+    }
+    return (process.env[envKey] || "").trim();
+  };
+
+  const instagramUserId = pick("instagram_user_id", "IG_USER_ID");
+  const instagramToken = pick("instagram_access_token", "IG_ACCESS_TOKEN");
+  const storageEndpoint = pick("storage_endpoint", "S3_ENDPOINT");
+  const storageBucket = pick("storage_bucket", "S3_BUCKET");
+  const storageAccessKeyId = pick("storage_access_key_id", "S3_ACCESS_KEY_ID");
+  const storageSecret = pick("storage_secret_access_key", "S3_SECRET_ACCESS_KEY");
+
+  return {
+    userId,
+    instagramUserId,
+    instagramApiVersion: pick("instagram_api_version", "IG_GRAPH_API_VERSION"),
+    instagramAutoPublish: Boolean(Number(row.instagram_auto_publish ?? 0)),
+    instagramShareToFeed:
+      row.instagram_share_to_feed === undefined
+        ? true
+        : Boolean(Number(row.instagram_share_to_feed)),
+    instagramHashtags: String(
+      row.instagram_hashtags ?? "#gaming #gamingclips #reels #clipxai"
+    ),
+    instagramConfigured: Boolean(instagramUserId && instagramToken),
+    storageEndpoint,
+    storageRegion: pick("storage_region", "S3_REGION") || "auto",
+    storageBucket,
+    storageAccessKeyId,
+    storagePrefix: pick("storage_prefix", "S3_PREFIX") || "clipx",
+    storagePublicBaseUrl: pick("storage_public_base_url", "S3_PUBLIC_BASE_URL"),
+    storageForcePathStyle:
+      row.storage_force_path_style === undefined
+        ? true
+        : Boolean(Number(row.storage_force_path_style)),
+    storageConfigured: Boolean(
+      storageEndpoint && storageBucket && storageAccessKeyId && storageSecret
+    ),
+    rawInstagramToken: instagramToken,
+    rawStorageSecret: storageSecret,
+  };
+}
+
+export interface SocialSettingsPatch {
+  instagramUserId?: string;
+  instagramAccessToken?: string;
+  instagramApiVersion?: string;
+  instagramAutoPublish?: boolean;
+  instagramShareToFeed?: boolean;
+  instagramHashtags?: string;
+  storageEndpoint?: string;
+  storageRegion?: string;
+  storageBucket?: string;
+  storageAccessKeyId?: string;
+  storageSecretAccessKey?: string;
+  storagePrefix?: string;
+  storagePublicBaseUrl?: string;
+  storageForcePathStyle?: boolean;
+}
+
+const MASK = "••••••••";
+
+export function updateSocialSettings(
+  userId: string,
+  patch: SocialSettingsPatch
+): SocialSettingsWithSecrets {
+  const db = getDb();
+  const current = getSocialSettings(userId);
+  const now = new Date().toISOString();
+
+  db.prepare(
+    "INSERT OR IGNORE INTO user_settings (user_id, updated_at) VALUES (?, ?)"
+  ).run(userId, now);
+
+  // A masked value means "unchanged" — the UI never receives the real secret.
+  const token =
+    patch.instagramAccessToken !== undefined &&
+    patch.instagramAccessToken !== MASK &&
+    patch.instagramAccessToken !== ""
+      ? patch.instagramAccessToken.trim()
+      : patch.instagramAccessToken === ""
+      ? ""
+      : current.rawInstagramToken;
+
+  const secret =
+    patch.storageSecretAccessKey !== undefined &&
+    patch.storageSecretAccessKey !== MASK &&
+    patch.storageSecretAccessKey !== ""
+      ? patch.storageSecretAccessKey.trim()
+      : patch.storageSecretAccessKey === ""
+      ? ""
+      : current.rawStorageSecret;
+
+  const next = {
+    instagramUserId:
+      patch.instagramUserId !== undefined
+        ? patch.instagramUserId.trim()
+        : current.instagramUserId,
+    instagramAccessToken: token,
+    instagramApiVersion:
+      patch.instagramApiVersion !== undefined
+        ? patch.instagramApiVersion.trim()
+        : current.instagramApiVersion,
+    instagramAutoPublish:
+      patch.instagramAutoPublish ?? current.instagramAutoPublish,
+    instagramShareToFeed:
+      patch.instagramShareToFeed ?? current.instagramShareToFeed,
+    instagramHashtags:
+      patch.instagramHashtags !== undefined
+        ? patch.instagramHashtags
+        : current.instagramHashtags,
+    storageEndpoint:
+      patch.storageEndpoint !== undefined
+        ? patch.storageEndpoint.trim()
+        : current.storageEndpoint,
+    storageRegion:
+      patch.storageRegion !== undefined
+        ? patch.storageRegion.trim() || "auto"
+        : current.storageRegion,
+    storageBucket:
+      patch.storageBucket !== undefined
+        ? patch.storageBucket.trim()
+        : current.storageBucket,
+    storageAccessKeyId:
+      patch.storageAccessKeyId !== undefined
+        ? patch.storageAccessKeyId.trim()
+        : current.storageAccessKeyId,
+    storageSecretAccessKey: secret,
+    storagePrefix:
+      patch.storagePrefix !== undefined
+        ? patch.storagePrefix.trim()
+        : current.storagePrefix,
+    storagePublicBaseUrl:
+      patch.storagePublicBaseUrl !== undefined
+        ? patch.storagePublicBaseUrl.trim()
+        : current.storagePublicBaseUrl,
+    storageForcePathStyle:
+      patch.storageForcePathStyle ?? current.storageForcePathStyle,
+  };
+
+  db.prepare(
+    `UPDATE user_settings SET
+       instagram_user_id = ?, instagram_access_token = ?, instagram_api_version = ?,
+       instagram_auto_publish = ?, instagram_share_to_feed = ?, instagram_hashtags = ?,
+       storage_endpoint = ?, storage_region = ?, storage_bucket = ?,
+       storage_access_key_id = ?, storage_secret_access_key = ?, storage_prefix = ?,
+       storage_public_base_url = ?, storage_force_path_style = ?, updated_at = ?
+     WHERE user_id = ?`
+  ).run(
+    next.instagramUserId,
+    next.instagramAccessToken,
+    next.instagramApiVersion,
+    next.instagramAutoPublish ? 1 : 0,
+    next.instagramShareToFeed ? 1 : 0,
+    next.instagramHashtags,
+    next.storageEndpoint,
+    next.storageRegion,
+    next.storageBucket,
+    next.storageAccessKeyId,
+    next.storageSecretAccessKey,
+    next.storagePrefix,
+    next.storagePublicBaseUrl,
+    next.storageForcePathStyle ? 1 : 0,
+    now,
+    userId
+  );
+
+  return getSocialSettings(userId);
+}
+
+export type SocialPostStatus =
+  | "queued"
+  | "hosting"
+  | "creating"
+  | "processing"
+  | "published"
+  | "failed"
+  | "skipped";
+
+export interface SocialPost {
+  id: string;
+  userId: string | null;
+  clipId: string;
+  platform: string;
+  mode: "auto" | "manual";
+  status: SocialPostStatus;
+  caption: string;
+  mediaKey: string;
+  mediaUrlExpiresAt: string | null;
+  containerId: string;
+  remoteMediaId: string;
+  permalink: string;
+  error: string;
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string | null;
+}
+
+export function mapSocialPostRow(row: Record<string, unknown>): SocialPost {
+  return {
+    id: String(row.id),
+    userId: row.user_id ? String(row.user_id) : null,
+    clipId: String(row.clip_id),
+    platform: String(row.platform || "instagram"),
+    mode: (String(row.mode || "manual") as "auto" | "manual"),
+    status: String(row.status || "queued") as SocialPostStatus,
+    caption: String(row.caption || ""),
+    mediaKey: String(row.media_key || ""),
+    mediaUrlExpiresAt: row.media_url_expires_at
+      ? String(row.media_url_expires_at)
+      : null,
+    containerId: String(row.container_id || ""),
+    remoteMediaId: String(row.remote_media_id || ""),
+    permalink: String(row.permalink || ""),
+    error: String(row.error || ""),
+    attempts: Number(row.attempts ?? 0),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    publishedAt: row.published_at ? String(row.published_at) : null,
+  };
+}
+
+export function createSocialPost(params: {
+  id: string;
+  userId: string | null;
+  clipId: string;
+  platform?: string;
+  mode: "auto" | "manual";
+  caption: string;
+  status?: SocialPostStatus;
+}): SocialPost {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO social_posts (id, user_id, clip_id, platform, mode, status, caption, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    params.id,
+    params.userId,
+    params.clipId,
+    params.platform || "instagram",
+    params.mode,
+    params.status || "queued",
+    params.caption,
+    now,
+    now
+  );
+  return getSocialPost(params.id)!;
+}
+
+export function getSocialPost(id: string): SocialPost | null {
+  const row = getDb()
+    .prepare("SELECT * FROM social_posts WHERE id = ?")
+    .get(id) as Record<string, unknown> | undefined;
+  return row ? mapSocialPostRow(row) : null;
+}
+
+export function updateSocialPost(
+  id: string,
+  patch: Partial<{
+    status: SocialPostStatus;
+    caption: string;
+    mediaKey: string;
+    mediaUrlExpiresAt: string | null;
+    containerId: string;
+    remoteMediaId: string;
+    permalink: string;
+    error: string;
+    attempts: number;
+    publishedAt: string | null;
+  }>
+): SocialPost | null {
+  const db = getDb();
+  const existing = getSocialPost(id);
+  if (!existing) return null;
+
+  db.prepare(
+    `UPDATE social_posts SET
+       status = ?, caption = ?, media_key = ?, media_url_expires_at = ?,
+       container_id = ?, remote_media_id = ?, permalink = ?, error = ?,
+       attempts = ?, published_at = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(
+    patch.status ?? existing.status,
+    patch.caption ?? existing.caption,
+    patch.mediaKey ?? existing.mediaKey,
+    patch.mediaUrlExpiresAt === undefined
+      ? existing.mediaUrlExpiresAt
+      : patch.mediaUrlExpiresAt,
+    patch.containerId ?? existing.containerId,
+    patch.remoteMediaId ?? existing.remoteMediaId,
+    patch.permalink ?? existing.permalink,
+    patch.error ?? existing.error,
+    patch.attempts ?? existing.attempts,
+    patch.publishedAt === undefined ? existing.publishedAt : patch.publishedAt,
+    new Date().toISOString(),
+    id
+  );
+
+  return getSocialPost(id);
+}
+
+export function listSocialPosts(
+  userId: string | null,
+  limit = 25
+): SocialPost[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM social_posts
+       WHERE user_id IS NULL OR user_id = ?
+       ORDER BY created_at DESC LIMIT ?`
+    )
+    .all(userId ?? "__guest__", limit) as Array<Record<string, unknown>>;
+  return rows.map(mapSocialPostRow);
+}
+
+export function findSocialPostForClip(
+  clipId: string,
+  platform = "instagram"
+): SocialPost | null {
+  const row = getDb()
+    .prepare(
+      `SELECT * FROM social_posts WHERE clip_id = ? AND platform = ?
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(clipId, platform) as Record<string, unknown> | undefined;
+  return row ? mapSocialPostRow(row) : null;
+}
+
+/** Counts successful API publishes in the rolling window (Instagram allows 50/24h). */
+export function countPublishedSince(userId: string | null, sinceIso: string): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM social_posts
+       WHERE platform = 'instagram' AND status = 'published'
+         AND published_at >= ? AND (user_id IS NULL OR user_id = ?)`
+    )
+    .get(sinceIso, userId ?? "__guest__") as { n?: number } | undefined;
+  return Number(row?.n ?? 0);
 }

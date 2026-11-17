@@ -62,6 +62,7 @@ async function main() {
     "/chat",
     "/downloads",
     "/settings",
+    "/publishing",
     "/auth",
   ]) {
     const { res } = await req(page);
@@ -131,6 +132,24 @@ async function main() {
     "anonymous settings write → 401",
     guestSettings.res.status === 401,
     `got ${guestSettings.res.status}`
+  );
+
+  const guestPublish = await req("/api/clips/clip-demo-1/publish", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platform: "instagram" }),
+  });
+  check(
+    "anonymous Instagram publish → 401",
+    guestPublish.res.status === 401,
+    `got ${guestPublish.res.status}`
+  );
+
+  const guestSocialSettings = await req("/api/social/settings");
+  check(
+    "anonymous social settings → 401",
+    guestSocialSettings.res.status === 401,
+    `got ${guestSocialSettings.res.status}`
   );
 
   const guestUpload = await req("/api/streams/upload", {

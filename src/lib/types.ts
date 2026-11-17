@@ -75,6 +75,8 @@ export interface StreamRecord {
   shortsLayout: ShortsLayout;
   autoShortsEnabled: boolean;
   autoDownloadEnabled: boolean;
+  /** -1 = inherit the account default, 0 = never auto-publish, 1 = auto-publish */
+  autoPublishEnabled: number;
   dedupeCooldownSeconds: number;
   lastClipEventAt: string | null;
   createdAt: string;

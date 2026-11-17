@@ -1,3 +1,5 @@
+import { broadcastWs } from "./ws";
+import { maybeAutoPublish } from "./social-publish";
 import crypto from "node:crypto";
 import path from "node:path";
 import {
@@ -109,22 +111,9 @@ function getEngine(): EngineState {
   return globalThis.__clipxEngine;
 }
 
-export function broadcastWs(event: string, payload: unknown) {
-  const clients = globalThis.__clipxWsClients;
-  if (!clients || clients.size === 0) return;
-  const msg = JSON.stringify({
-    event,
-    payload,
-    timestamp: new Date().toISOString(),
-  });
-  clients.forEach((ws) => {
-    try {
-      if (ws.readyState === 1) ws.send(msg);
-    } catch {
-      // ignore disconnected socket
-    }
-  });
-}
+// Re-exported so existing importers keep working; implementation lives in ws.ts
+// to avoid a circular dependency with the social publishing module.
+export { broadcastWs };
 
 export function upsertJob(job: ProcessingJob) {
   const engine = getEngine();
@@ -1836,6 +1825,17 @@ export async function executeClipCapture(params: {
         };
         broadcastWs("auto_download_bundle", readyEvt);
       }
+    }
+
+    // 7. OPTIONAL AUTO-PUBLISH TO INSTAGRAM
+    //    Opt-in (Settings → Instagram) and per-stream overridable. Runs in the
+    //    background so a network hiccup can never delay or fail the capture.
+    if (publicShortClip && shortRowFull) {
+      maybeAutoPublish({
+        clipId: shortRowFull.id,
+        userId: params.userId ?? null,
+        autoPublishOverride: stream.autoPublishEnabled,
+      });
     }
 
     upsertJob({

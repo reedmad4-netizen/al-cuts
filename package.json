@@ -1,14 +1,16 @@
 {
   "name": "clipx-ai",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
-  "description": "CLIPX AI \u2014 AI-Powered Automatic Gaming Clip Generator (Zero Native Build Tools Required)",
+  "description": "CLIPX AI — AI-Powered Automatic Gaming Clip Generator (Zero Native Build Tools Required)",
   "scripts": {
     "dev": "node server.mjs --dev",
     "build": "node scripts/run-next.mjs build",
     "start": "node server.mjs --prod",
     "seed:media": "node scripts/generate-sample-media.mjs",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "test:s3": "node scripts/test-s3-signer.mjs",
+    "test:social": "node scripts/test-instagram-flow.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
@@ -17,12 +19,12 @@
     "jose": "^5.9.6",
     "lucide-react": "^0.460.0",
     "next": "15.5.29",
+    "postcss": "^8.5.33",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sql.js": "^1.12.0",
     "ws": "^8.18.0",
-    "zod": "^4.6.7",
-    "postcss": "^8.5.33"
+    "zod": "^4.6.7"
   },
   "optionalDependencies": {
     "ffmpeg-static": "^5.2.0",
@@ -35,6 +37,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.5.13",
     "autoprefixer": "^10.4.20",
+    "aws4": "^1.13.2",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3"
   },

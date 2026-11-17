@@ -350,3 +350,49 @@ The P0/P1 items below were implemented on branch `arena/5af5ddc6-al-cuts` and ve
 - Platform tokens remain unencrypted in SQLite.
 - No LICENSE, ESLint/Prettier, or CI (recommend adding a workflow running `npm run build && npm run smoke`).
 - 52 bare `catch {}` blocks and the 2k-line modules are untouched.
+
+---
+
+## 10. Feature addition — Instagram Reels publishing (v1.6.0)
+
+Requested feature: automatically upload rendered Shorts to Instagram.
+
+### Constraints that shaped the design
+1. The Instagram Graph API **never accepts file bytes** — it downloads the video
+   from a public URL. The app therefore uploads to an S3-compatible bucket and
+   hands Instagram a 24 h presigned URL (or a public/CDN URL).
+2. Only **Business/Creator** accounts can publish. Personal accounts have no
+   supported API; unofficial private-API automation violates the Terms of Use
+   and risks account bans, so it is deliberately **not** implemented — the UI
+   detects a personal account and explains the (free, two-minute) conversion.
+3. Publishing is asynchronous: create container → wait for processing →
+   publish → fetch permalink. The pipeline models these as `social_posts`
+   statuses and streams them to the UI.
+4. Instagram caps API publishing at **50 posts per rolling 24 h**; both the
+   remote quota endpoint and the local history are checked.
+
+### Implementation
+| Area | Detail |
+|---|---|
+| `src/lib/s3.ts` | Hand-rolled SigV4 (header signing for PUT, presigned GET), no AWS SDK. Differential-tested byte-for-byte against `aws4`. |
+| `src/lib/instagram.ts` | Account verification (detects personal accounts), quota, container + publish state machine, Meta error → plain-language mapping. |
+| `src/lib/captions.ts` | Deterministic local captions (title, game, channel, AI score, trigger) + Reels ingest validation. |
+| `src/lib/social-publish.ts` | Orchestration, idempotency, per-clip status tracking, auto-publish hook. |
+| DB | New `social_posts` table, Instagram/storage columns on `user_settings`, `auto_publish_enabled` per stream (-1 inherit / 0 off / 1 on). |
+| API | `/api/social/settings`, `/api/social/instagram/verify`, `/api/social/storage/test`, `/api/social/posts`, `/api/clips/[id]/publish`. |
+| UI | New `/publishing` page: connect + verify, bucket test, manual publish with editable caption, per-stream overrides, history. |
+| Tests | `npm run test:s3` (5 path/encoding cases × signatures), `npm run test:social` (17 checks incl. hands-free auto-publish) against a mock Graph API + mock S3. |
+
+### Verified behaviour
+- Manual publish: 9:16 Short → S3 → container (`media_type=REELS`, public
+  `video_url`, auto caption) → processing → publish → permalink stored.
+- Hands-free: enabling auto-publish causes the next captured Short to publish
+  with no user interaction (verified in the mocked end-to-end run).
+- Guards: anonymous publish → 401, non-owner → 403, non-professional account →
+  actionable error, invalid video → refused before upload, re-publish →
+  not duplicated.
+
+### Still open
+Podcast-style scheduling, carousel/Story targets, token refresh automation
+(long-lived tokens expire after ~60 days), and per-account multi-tenant bucket
+isolation.

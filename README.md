@@ -1,4 +1,4 @@
-# CLIPX AI — AI-Powered Automatic Gaming Clip Generator (v1.5.0)
+# CLIPX AI — AI-Powered Automatic Gaming Clip Generator (v1.6.0)
 
 **CLIPX AI** is a full-stack SaaS web application that connects to **any public Twitch, YouTube Live, Kick, or HLS (`.m3u8`) gaming stream in native `1080p60 (Source)` quality with ZERO API keys** (plus local video uploads), maintains a **live rolling 20-second pre-event buffer**, streams **real-time live viewer chat**, detects viral gameplay hype spikes, scores highlights **0–100**, and **automatically generates & downloads BOTH a lossless `1920×1080 @ 60fps` Original MP4 AND a full-length, full-frame `1080×1920 @ 60fps` Vertical Short MP4** (up to full 60s Shorts length, nothing cropped off) — pausing auto-download with a warning if copyrighted music is detected (audio never modified without permission).
 
@@ -118,7 +118,117 @@ Once connected:
 6. **Live Chat Monitor (`/chat`)** — WebSocket-streamed chat feed, live velocity indicator (`msg/min`), interactive message tester, and surge log showing both saved clips and duplicate-suppressed bursts
 7. **Downloads & Export Log (`/downloads`)** — Ready-to-export owned clips with real XHR download progress bar, pre-export copyright warning modal (never auto-strips audio), and persistent export history
 8. **Settings (`/settings`)** — Post-event capture duration (`5–15s`), minimum AI score threshold, duplicate cooldown window, chat spike multiplier, copyright warning preferences, official Twitch/YouTube/Kick API keys, and demo data reset
-9. **Login & Register (`/auth`)** — Sign in, create an account, or use 1-Click Demo Login
+9. **Publishing (`/publishing`)** — Connect an Instagram Business/Creator account + S3-compatible bucket, verify both, publish a Short as a Reel in one click, or switch on hands-free auto-publish with per-stream overrides and a publishing history
+10. **Login & Register (`/auth`)** — Sign in, create an account, or use 1-Click Demo Login
+
+---
+
+## Automatic Instagram Reels Upload (optional)
+
+CLIPX AI can push every generated **9:16 Short** straight to Instagram Reels —
+manually with one click, or fully hands-free.
+
+> **Account requirement:** Instagram's publishing API works **only** for
+> **Business / Creator** accounts linked to a Facebook Page. Personal accounts
+> have no supported publishing API. The unofficial private-API workarounds
+> violate Instagram's Terms of Use and can get an account banned, so CLIPX AI
+> deliberately does not implement them — instead the Publishing page tells you
+> exactly what to change if it detects a personal account.
+
+### Why a bucket is involved
+
+Instagram never accepts a file upload: it **downloads the video from a public
+URL**. CLIPX AI therefore uploads the rendered Short to your own S3-compatible
+bucket and hands Instagram a link.
+
+### 1. Prepare the Instagram account
+
+1. Convert the account to **Creator** or **Business** (Instagram app →
+   Settings → Account type).
+2. Link it to a Facebook Page (required by the API).
+3. Create a Meta app at [developers.facebook.com](https://developers.facebook.com),
+   add the **Instagram** product, and request `instagram_basic` +
+   `instagram_content_publish` (+ `pages_show_list` to read the Page).
+4. Find the Instagram user id:
+   `GET /me/accounts` → take a Page id → `GET /{page-id}?fields=instagram_business_account`.
+5. Generate a **long-lived** user access token (exchange the short-lived one via
+   `GET /oauth/access_token?grant_type=fb_exchange_token`). Tokens last ~60 days.
+
+### 2. Prepare the bucket
+
+Works with AWS S3, Cloudflare R2, Backblaze B2 or MinIO. Either make the bucket
+publicly readable (and set a CDN base URL) or leave that field blank — CLIPX AI
+then issues **presigned links valid for 24 h**.
+
+### 3. Configure CLIPX AI
+
+Open **Publishing** in the sidebar and fill in:
+
+| Field | Example |
+|---|---|
+| Instagram user ID | `17841400000000000` |
+| Long-lived access token | `EAAG…` (stored server-side, never returned to the browser) |
+| Hashtags | `#gaming #gamingclips #reels` |
+| Endpoint | `https://<account>.r2.cloudflarestorage.com` |
+| Region | `auto` for R2, e.g. `us-east-1` for AWS |
+| Bucket / prefix | `clipx-clips` / `clipx` |
+| Access key id + secret | your bucket credentials |
+
+Press **Verify connection** (checkout the account type and remaining daily
+quota) and **Test bucket** (uploads a tiny object and downloads it back through
+the public URL). Both must pass before publishing.
+
+Prefer environment variables on a shared deployment:
+
+```bash
+IG_USER_ID=17841400000000000
+IG_ACCESS_TOKEN=EAAG...
+S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+S3_REGION=auto
+S3_BUCKET=clipx-clips
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+S3_PREFIX=clipx
+S3_PUBLIC_BASE_URL=          # optional CDN / public bucket
+```
+
+### 4. Choose how clips are published
+
+- **Manual** (default): the Publishing page lists your Shorts with an editable
+  auto-generated caption and a **Publish to Instagram** button.
+- **Auto-publish**: enable the toggle to publish each new Short the moment it is
+  rendered. Any stream can override the account default (inherit / always /
+  never).
+
+Captions are generated locally from the clip's own data — title, game, channel,
+AI hype score and trigger reason plus your hashtag set — no extra AI service.
+
+### Limits and behaviour
+
+- Instagram allows **50 API-published posts per rolling 24 h**; CLIPX AI checks
+  the account quota *and* its own history before publishing.
+- Every video is validated against Reels rules (MP4 · H.264/HEVC · AAC · 3–900 s
+  · ≤1 GB · vertical preferred) **before** anything is uploaded.
+- Publishing state is tracked per clip (`queued → hosting → creating →
+  processing → published/failed`) and streamed to the UI over the WebSocket.
+- Failures are recorded with Meta's error explained in plain language (expired
+  token, missing permission, unreachable URL, rate limit, non-professional
+  account, unsupported video).
+- Only clips you own can be published. Demo sample clips belong to the demo
+  account, so sign in to publish them.
+
+### Verifying it works without Instagram
+
+The publish pipeline is covered by an offline test harness that stands up a mock
+Graph API and a mock S3 bucket:
+
+```bash
+npm run test:s3        # SigV4 differential test vs the aws4 package
+npm run test:social    # full publish flow + hands-free auto-publish
+```
+
+`test:social` needs the server running with
+`IG_GRAPH_BASE_URL=http://127.0.0.1:3900/graph` and a working FFmpeg.
 
 ---
 

@@ -17,7 +17,7 @@ export async function GET() {
   return NextResponse.json(
     {
       ok: toolchain.ready,
-      version: "1.5.0",
+      version: "1.6.0",
       media: {
         ready: toolchain.ready,
         ffmpeg: toolchain.ffmpeg,

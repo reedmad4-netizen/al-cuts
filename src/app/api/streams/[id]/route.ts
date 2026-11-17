@@ -23,6 +23,8 @@ const UpdateStreamSchema = z.object({
   autoShortsEnabled: z.boolean().optional(),
   autoDownloadEnabled: z.boolean().optional(),
   dedupeCooldownSeconds: z.number().int().min(10).max(120).optional(),
+  /** -1 inherit account default, 0 never, 1 always */
+  autoPublishEnabled: z.number().int().min(-1).max(1).optional(),
   isAuthorized: z.boolean().optional(),
 });
 
@@ -71,13 +73,15 @@ export async function PATCH(
       parsed.data.shortsLayout !== undefined ||
       parsed.data.autoShortsEnabled !== undefined ||
       parsed.data.autoDownloadEnabled !== undefined ||
-      parsed.data.dedupeCooldownSeconds !== undefined
+      parsed.data.dedupeCooldownSeconds !== undefined ||
+      parsed.data.autoPublishEnabled !== undefined
     ) {
       db.prepare(
         `UPDATE streams
          SET post_buffer_seconds = ?, min_ai_score = ?, hype_threshold = ?,
              video_quality = ?, shorts_layout = ?,
-             auto_shorts_enabled = ?, auto_download_enabled = ?, dedupe_cooldown_seconds = ?
+             auto_shorts_enabled = ?, auto_download_enabled = ?, dedupe_cooldown_seconds = ?,
+             auto_publish_enabled = ?
          WHERE id = ?`
       ).run(
         parsed.data.postBufferSeconds ?? stream.postBufferSeconds,
@@ -88,6 +92,7 @@ export async function PATCH(
         (parsed.data.autoShortsEnabled ?? stream.autoShortsEnabled) ? 1 : 0,
         (parsed.data.autoDownloadEnabled ?? stream.autoDownloadEnabled) ? 1 : 0,
         parsed.data.dedupeCooldownSeconds ?? stream.dedupeCooldownSeconds,
+        parsed.data.autoPublishEnabled ?? stream.autoPublishEnabled,
         id
       );
 
