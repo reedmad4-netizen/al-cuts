@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+exports/
+data/clipx.db*
+public/media/generated/*
+!public/media/generated/.gitkeep
+public/media/uploads/*
+!public/media/uploads/.gitkeep
+.env.local
+.env.*.local
+*.tsbuildinfo
+next-env.d.ts
