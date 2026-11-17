@@ -3,6 +3,7 @@ node_modules/
 out/
 exports/
 data/clipx.db*
+data/auth-secret
 public/media/generated/*
 !public/media/generated/.gitkeep
 public/media/uploads/*

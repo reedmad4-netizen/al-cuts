@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-white text-zinc-950 font-sans selection:bg-blue-600 selection:text-white;
+  }
+}
+
+/* Clean custom range slider styling */
+input[type="range"].clipx-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: #e4e4e7;
+  outline: none;
+}
+
+input[type="range"].clipx-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #2563eb;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(9, 9, 11, 0.22);
+  cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+input[type="range"].clipx-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  background: #1d4ed8;
+}
+
+input[type="range"].clipx-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #2563eb;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(9, 9, 11, 0.22);
+  cursor: pointer;
+}
+
+/* Subtle scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
