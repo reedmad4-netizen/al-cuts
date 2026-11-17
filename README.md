@@ -23,7 +23,7 @@ Then open **http://localhost:3000** in your browser.
 curl -s localhost:3000/api/health | jq
 # {"ok":true, ..., "media":{"ready":true, "ffmpeg":{...}, "ffprobe":{...}}}
 
-npm run smoke     # 18 HTTP checks: auth, ownership, traversal, rate limits
+npm run smoke     # 21 HTTP checks: pages, auth, ownership, traversal, rate limits
 ```
 
 If `/api/health` reports `media.ready: false`, clip capture/editing is disabled:
@@ -38,8 +38,25 @@ The server prints the same warning at boot — it will never silently pretend vi
 
 ```bash
 npm run build
-npm start
+npm start          # serves the compiled app on http://localhost:3000
 ```
+
+Both commands work on the same codebase: `npm run dev` compiles pages on demand
+(recommended while editing), `npm start` requires the build and is what you
+deploy. Change the port with `PORT=8080 npm start`.
+
+### Where state lives
+
+Everything is local and git-ignored — delete these directories to start fresh:
+
+| Path | Contents |
+|---|---|
+| `data/clipx.db` | users, streams, clips, settings, publishing history (SQLite via sql.js) |
+| `data/auth-secret` | signing key generated on first boot (set `CLIPX_AUTH_SECRET` to override) |
+| `media/`, `exports/` | captured footage, rendered clips and shorts |
+
+Running two instances against the same SQLite file is not supported — the
+database is rewritten as a whole file on each write.
 
 ### Demo Account
 
