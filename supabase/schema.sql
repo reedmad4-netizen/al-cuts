@@ -228,3 +228,61 @@ create policy chat_public_read on public.chat_messages
 drop policy if exists surges_public_read on public.chat_surges;
 create policy surges_public_read on public.chat_surges
   for select using (true);
+
+-- ---------------------------------------------------------------------------
+-- Instagram publishing + S3-compatible media hosting (v1.6.0)
+--
+-- The local sql.js database migrates itself at boot (ensureColumn); these
+-- statements bring an existing PostgreSQL / Supabase project to the same shape.
+-- Every column is additive, so the file stays idempotent.
+-- ---------------------------------------------------------------------------
+
+alter table public.user_settings add column if not exists instagram_user_id text not null default '';
+alter table public.user_settings add column if not exists instagram_access_token text not null default '';
+alter table public.user_settings add column if not exists instagram_api_version text not null default '';
+alter table public.user_settings add column if not exists instagram_auto_publish integer not null default 0;
+alter table public.user_settings add column if not exists instagram_share_to_feed integer not null default 1;
+alter table public.user_settings add column if not exists instagram_hashtags text not null default '#gaming #gamingclips #reels #clipxai';
+alter table public.user_settings add column if not exists storage_endpoint text not null default '';
+alter table public.user_settings add column if not exists storage_region text not null default 'auto';
+alter table public.user_settings add column if not exists storage_bucket text not null default '';
+alter table public.user_settings add column if not exists storage_access_key_id text not null default '';
+alter table public.user_settings add column if not exists storage_secret_access_key text not null default '';
+alter table public.user_settings add column if not exists storage_prefix text not null default 'clipx';
+alter table public.user_settings add column if not exists storage_public_base_url text not null default '';
+alter table public.user_settings add column if not exists storage_force_path_style integer not null default 1;
+
+-- -1 = follow the account default, 0 = never auto-publish, 1 = always
+alter table public.streams add column if not exists auto_publish_enabled integer not null default -1
+  check (auto_publish_enabled in (-1, 0, 1));
+
+create table if not exists public.social_posts (
+  id text primary key,
+  user_id text references public.users(id) on delete cascade,
+  clip_id text not null references public.clips(id) on delete cascade,
+  platform text not null default 'instagram' check (platform in ('instagram')),
+  mode text not null default 'manual' check (mode in ('manual', 'auto')),
+  status text not null default 'queued'
+    check (status in ('queued', 'hosting', 'creating', 'processing', 'published', 'failed')),
+  caption text not null default '',
+  media_key text not null default '',
+  media_url_expires_at timestamptz,
+  container_id text not null default '',
+  remote_media_id text not null default '',
+  permalink text not null default '',
+  error text not null default '',
+  attempts integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  published_at timestamptz
+);
+
+create index if not exists idx_social_posts_clip on public.social_posts(clip_id);
+create index if not exists idx_social_posts_status on public.social_posts(status, created_at desc);
+
+-- Tokens live server-side only; row access follows clip ownership.
+alter table public.social_posts enable row level security;
+
+drop policy if exists social_posts_owner on public.social_posts;
+create policy social_posts_owner on public.social_posts
+  for all using (auth.uid()::text = user_id) with check (auth.uid()::text = user_id);
