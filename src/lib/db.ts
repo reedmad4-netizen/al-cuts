@@ -392,6 +392,7 @@ function initSchema(db: SqlDatabase) {
   ensureColumn("user_settings", "instagram_user_id", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "instagram_access_token", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "instagram_api_version", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("user_settings", "instagram_login_method", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("user_settings", "instagram_auto_publish", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("user_settings", "instagram_share_to_feed", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(
@@ -1209,9 +1210,13 @@ export function getEffectiveSettings(userId: string | null): UserSettings & {
 /* Social publishing settings & queue (Instagram)                             */
 /* ------------------------------------------------------------------------- */
 
+export type InstagramLoginMethod = "facebook" | "instagram";
+
 export interface SocialSettings {
   userId: string;
   instagramUserId: string;
+  /** Which official Meta login path issued the token. */
+  instagramLoginMethod: InstagramLoginMethod;
   instagramApiVersion: string;
   instagramAutoPublish: boolean;
   instagramShareToFeed: boolean;
@@ -1237,6 +1242,7 @@ function socialDefaults(userId: string) {
     instagram_user_id: "",
     instagram_access_token: "",
     instagram_api_version: "",
+    instagram_login_method: "",
     instagram_auto_publish: 0,
     instagram_share_to_feed: 1,
     instagram_hashtags: "#gaming #gamingclips #reels #clipxai",
@@ -1281,9 +1287,15 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
   const storageAccessKeyId = pick("storage_access_key_id", "S3_ACCESS_KEY_ID");
   const storageSecret = pick("storage_secret_access_key", "S3_SECRET_ACCESS_KEY");
 
+  const loginMethod: InstagramLoginMethod =
+    (pick("instagram_login_method", "IG_LOGIN_METHOD").toLowerCase() === "instagram"
+      ? "instagram"
+      : "facebook");
+
   return {
     userId,
     instagramUserId,
+    instagramLoginMethod: loginMethod,
     instagramApiVersion: pick("instagram_api_version", "IG_GRAPH_API_VERSION"),
     instagramAutoPublish: Boolean(Number(row.instagram_auto_publish ?? 0)),
     instagramShareToFeed:
@@ -1314,6 +1326,7 @@ export function getSocialSettings(userId: string): SocialSettingsWithSecrets {
 
 export interface SocialSettingsPatch {
   instagramUserId?: string;
+  instagramLoginMethod?: InstagramLoginMethod;
   instagramAccessToken?: string;
   instagramApiVersion?: string;
   instagramAutoPublish?: boolean;
@@ -1368,6 +1381,10 @@ export function updateSocialSettings(
         ? patch.instagramUserId.trim()
         : current.instagramUserId,
     instagramAccessToken: token,
+    instagramLoginMethod:
+      patch.instagramLoginMethod !== undefined
+        ? patch.instagramLoginMethod
+        : current.instagramLoginMethod,
     instagramApiVersion:
       patch.instagramApiVersion !== undefined
         ? patch.instagramApiVersion.trim()
@@ -1412,6 +1429,7 @@ export function updateSocialSettings(
   db.prepare(
     `UPDATE user_settings SET
        instagram_user_id = ?, instagram_access_token = ?, instagram_api_version = ?,
+       instagram_login_method = ?,
        instagram_auto_publish = ?, instagram_share_to_feed = ?, instagram_hashtags = ?,
        storage_endpoint = ?, storage_region = ?, storage_bucket = ?,
        storage_access_key_id = ?, storage_secret_access_key = ?, storage_prefix = ?,
@@ -1421,6 +1439,7 @@ export function updateSocialSettings(
     next.instagramUserId,
     next.instagramAccessToken,
     next.instagramApiVersion,
+    next.instagramLoginMethod,
     next.instagramAutoPublish ? 1 : 0,
     next.instagramShareToFeed ? 1 : 0,
     next.instagramHashtags,

@@ -59,6 +59,7 @@ function instagramConfigFrom(settings: ReturnType<typeof getSocialSettings>): In
     igUserId: settings.instagramUserId,
     accessToken: settings.rawInstagramToken,
     apiVersion: settings.instagramApiVersion,
+    loginMethod: settings.instagramLoginMethod,
   });
 }
 

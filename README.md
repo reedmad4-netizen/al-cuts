@@ -145,8 +145,14 @@ Once connected:
 CLIPX AI can push every generated **9:16 Short** straight to Instagram Reels —
 manually with one click, or fully hands-free.
 
+> **Step-by-step, from zero:** see [`GETTING-STARTED.md`](./GETTING-STARTED.md)
+> for a beginner-friendly walkthrough (run the app → convert the account →
+> create the Meta app → free bucket → connect → publish).
+
 > **Account requirement:** Instagram's publishing API works **only** for
-> **Business / Creator** accounts linked to a Facebook Page. Personal accounts
+> **Business / Creator** (professional) accounts. A Facebook Page is required by
+> the *Facebook Login* path but **not** by the newer *Instagram Login* path —
+> CLIPX AI supports both (`Login path` dropdown on the Publishing page). Personal accounts
 > have no supported publishing API. The unofficial private-API workarounds
 > violate Instagram's Terms of Use and can get an account banned, so CLIPX AI
 > deliberately does not implement them — instead the Publishing page tells you
@@ -162,14 +168,22 @@ bucket and hands Instagram a link.
 
 1. Convert the account to **Creator** or **Business** (Instagram app →
    Settings → Account type).
-2. Link it to a Facebook Page (required by the API).
-3. Create a Meta app at [developers.facebook.com](https://developers.facebook.com),
-   add the **Instagram** product, and request `instagram_basic` +
-   `instagram_content_publish` (+ `pages_show_list` to read the Page).
-4. Find the Instagram user id:
-   `GET /me/accounts` → take a Page id → `GET /{page-id}?fields=instagram_business_account`.
-5. Generate a **long-lived** user access token (exchange the short-lived one via
-   `GET /oauth/access_token?grant_type=fb_exchange_token`). Tokens last ~60 days.
+2. Create a Meta app at [developers.facebook.com](https://developers.facebook.com)
+   and add the **Instagram** product. There are two official doors:
+
+   | Path | Host | Facebook Page | Scopes |
+   |---|---|---|---|
+   | **Instagram Login** (simplest) | `graph.instagram.com` | not required | `instagram_business_basic`, `instagram_business_content_publish` |
+   | **Facebook Login** | `graph.facebook.com` | required | `instagram_basic`, `instagram_content_publish` |
+
+3. Generate the token from the app dashboard and copy the **Instagram account id**
+   shown next to it. For the Facebook Login path the id comes from
+   `GET /{page-id}?fields=instagram_business_account`.
+4. Exchange the short-lived token for a **long-lived** one (Instagram Login:
+   `grant_type=ig_exchange_token`; Facebook Login: `grant_type=fb_exchange_token`).
+   They last ~60 days.
+5. Tell the app which door you used — the **Login path** dropdown on the
+   Publishing page (or `IG_LOGIN_METHOD=instagram`).
 
 ### 2. Prepare the bucket
 
@@ -183,6 +197,7 @@ Open **Publishing** in the sidebar and fill in:
 
 | Field | Example |
 |---|---|
+| Login path | `Instagram Login` or `Facebook Login` |
 | Instagram user ID | `17841400000000000` |
 | Long-lived access token | `EAAG…` (stored server-side, never returned to the browser) |
 | Hashtags | `#gaming #gamingclips #reels` |

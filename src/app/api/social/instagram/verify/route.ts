@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     igUserId: settings.instagramUserId,
     accessToken: settings.rawInstagramToken,
     apiVersion: settings.instagramApiVersion,
+    loginMethod: settings.instagramLoginMethod,
   });
 
   if (!isInstagramConfigured(config)) {

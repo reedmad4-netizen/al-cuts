@@ -240,6 +240,9 @@ create policy surges_public_read on public.chat_surges
 alter table public.user_settings add column if not exists instagram_user_id text not null default '';
 alter table public.user_settings add column if not exists instagram_access_token text not null default '';
 alter table public.user_settings add column if not exists instagram_api_version text not null default '';
+-- 'facebook' = Instagram API with Facebook Login, 'instagram' = Instagram Login
+alter table public.user_settings add column if not exists instagram_login_method text not null default ''
+  check (instagram_login_method in ('', 'facebook', 'instagram'));
 alter table public.user_settings add column if not exists instagram_auto_publish integer not null default 0;
 alter table public.user_settings add column if not exists instagram_share_to_feed integer not null default 1;
 alter table public.user_settings add column if not exists instagram_hashtags text not null default '#gaming #gamingclips #reels #clipxai';

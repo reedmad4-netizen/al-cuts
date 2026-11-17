@@ -25,6 +25,7 @@ interface SocialSettingsView {
   instagramUserId: string;
   instagramAccessToken: string;
   instagramApiVersion: string;
+  instagramLoginMethod: "facebook" | "instagram";
   instagramAutoPublish: boolean;
   instagramShareToFeed: boolean;
   instagramHashtags: string;
@@ -58,6 +59,7 @@ const EMPTY_SETTINGS: SocialSettingsView = {
   instagramUserId: "",
   instagramAccessToken: "",
   instagramApiVersion: "",
+  instagramLoginMethod: "facebook",
   instagramAutoPublish: false,
   instagramShareToFeed: true,
   instagramHashtags: "#gaming #gamingclips #reels #clipxai",
@@ -510,6 +512,24 @@ export default function PublishingPage() {
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-zinc-600">
+                Login path used for the token
+              </span>
+              <select
+                value={settings.instagramLoginMethod}
+                onChange={(e) =>
+                  patch(
+                    "instagramLoginMethod",
+                    e.target.value as "facebook" | "instagram"
+                  )
+                }
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+              >
+                <option value="facebook">Facebook Login (graph.facebook.com · needs a Page)</option>
+                <option value="instagram">Instagram Login (graph.instagram.com · no Page)</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-zinc-600">
                 Graph API version
               </span>
               <input
@@ -520,6 +540,15 @@ export default function PublishingPage() {
               />
             </label>
           </div>
+
+          <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+            Facebook Login needs <code>instagram_basic</code> +{" "}
+            <code>instagram_content_publish</code>. Instagram Login needs{" "}
+            <code>instagram_business_basic</code> +{" "}
+            <code>instagram_business_content_publish</code> and skips the Facebook Page
+            entirely. Pick whichever path you used to generate the token — publishing
+            endpoints are identical.
+          </p>
 
           <div className="mt-4 space-y-2">
             <label className="flex items-start gap-2 text-sm text-zinc-700">

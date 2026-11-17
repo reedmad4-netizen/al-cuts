@@ -10,27 +10,51 @@
  * - Publishing is two-step: create a media *container*, wait for it to finish
  *   processing, then publish it.
  * - At most 50 API-published posts per rolling 24h per account.
+ * - Two official login paths share the same publishing endpoints:
+ *   • "Instagram API with Facebook Login" → graph.facebook.com, requires the
+ *     professional account to be linked to a Facebook Page;
+ *     scopes: instagram_basic + instagram_content_publish.
+ *   • "Instagram API with Instagram Login" → graph.instagram.com, no Page;
+ *     scopes: instagram_business_basic + instagram_business_content_publish.
  */
 
 import { describeNetworkError } from "./net-errors";
+
+export type InstagramLoginMethod = "facebook" | "instagram";
 
 export interface InstagramConfig {
   igUserId: string;
   accessToken: string;
   apiVersion: string;
+  loginMethod: InstagramLoginMethod;
   /** Overridable for tests/local mocks. */
   graphBaseUrl: string;
 }
 
 export const DEFAULT_GRAPH_VERSION = "v23.0";
+/** Instagram API with Facebook Login — needs a linked Facebook Page. */
 export const DEFAULT_GRAPH_BASE = "https://graph.facebook.com";
+/** Instagram API with Instagram Login — no Facebook Page needed. */
+export const INSTAGRAM_LOGIN_BASE = "https://graph.instagram.com";
 
 export function resolveInstagramConfig(params: {
   igUserId?: string | null;
   accessToken?: string | null;
   apiVersion?: string | null;
+  loginMethod?: string | null;
   graphBaseUrl?: string | null;
 }): InstagramConfig {
+  const loginMethod: InstagramLoginMethod =
+    (params.loginMethod || "").trim().toLowerCase() === "instagram"
+      ? "instagram"
+      : "facebook";
+
+  // Host precedence: explicit override (tests/proxies) → env → login method.
+  const graphBaseUrl =
+    (params.graphBaseUrl || "").trim() ||
+    process.env.IG_GRAPH_BASE_URL?.trim() ||
+    (loginMethod === "instagram" ? INSTAGRAM_LOGIN_BASE : DEFAULT_GRAPH_BASE);
+
   return {
     igUserId: (params.igUserId || "").trim(),
     accessToken: (params.accessToken || "").trim(),
@@ -38,10 +62,8 @@ export function resolveInstagramConfig(params: {
       (params.apiVersion || "").trim() ||
       process.env.IG_GRAPH_API_VERSION?.trim() ||
       DEFAULT_GRAPH_VERSION,
-    graphBaseUrl:
-      (params.graphBaseUrl || "").trim() ||
-      process.env.IG_GRAPH_BASE_URL?.trim() ||
-      DEFAULT_GRAPH_BASE,
+    loginMethod,
+    graphBaseUrl,
   };
 }
 

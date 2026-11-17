@@ -36,6 +36,7 @@ const UpdateSchema = z.object({
   instagramUserId: z.string().max(64).optional(),
   instagramAccessToken: z.string().max(2048).optional(),
   instagramApiVersion: z.string().max(16).optional(),
+  instagramLoginMethod: z.enum(["facebook", "instagram"]).optional(),
   instagramAutoPublish: z.boolean().optional(),
   instagramShareToFeed: z.boolean().optional(),
   instagramHashtags: z.string().max(2000).optional(),

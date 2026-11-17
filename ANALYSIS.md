@@ -361,7 +361,10 @@ Requested feature: automatically upload rendered Shorts to Instagram.
 1. The Instagram Graph API **never accepts file bytes** — it downloads the video
    from a public URL. The app therefore uploads to an S3-compatible bucket and
    hands Instagram a 24 h presigned URL (or a public/CDN URL).
-2. Only **Business/Creator** accounts can publish. Personal accounts have no
+2. Only **Business/Creator** accounts can publish. Meta offers two official
+   login paths — "with Facebook Login" (`graph.facebook.com`, needs a linked
+   Page) and "with Instagram Login" (`graph.instagram.com`, no Page) — so the
+   app exposes a login-path selector and honours both hosts. Personal accounts have no
    supported API; unofficial private-API automation violates the Terms of Use
    and risks account bans, so it is deliberately **not** implemented — the UI
    detects a personal account and explains the (free, two-minute) conversion.

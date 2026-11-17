@@ -246,6 +246,23 @@ async function main() {
       settingsRes.json?.settings?.storageSecretAccessKey === "••••••••"
   );
 
+  // 1b. login path (Facebook Login vs Instagram Login) round-trips
+  const loginPathSaved = await api(
+    "/api/social/settings",
+    { method: "PUT", body: JSON.stringify({ instagramLoginMethod: "instagram" }) },
+    cookie
+  );
+  check(
+    "login path persists (Instagram Login)",
+    loginPathSaved.json?.settings?.instagramLoginMethod === "instagram",
+    JSON.stringify(loginPathSaved.json?.settings?.instagramLoginMethod)
+  );
+  await api(
+    "/api/social/settings",
+    { method: "PUT", body: JSON.stringify({ instagramLoginMethod: "facebook" }) },
+    cookie
+  );
+
   // 2. verify account
   const verify = await api("/api/social/instagram/verify", { method: "POST" }, cookie);
   check(
