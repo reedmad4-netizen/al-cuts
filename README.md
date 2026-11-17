@@ -1,4 +1,4 @@
-# CLIPX AI — AI-Powered Automatic Gaming Clip Generator (v1.4.0)
+# CLIPX AI — AI-Powered Automatic Gaming Clip Generator (v1.5.0)
 
 **CLIPX AI** is a full-stack SaaS web application that connects to **any public Twitch, YouTube Live, Kick, or HLS (`.m3u8`) gaming stream in native `1080p60 (Source)` quality with ZERO API keys** (plus local video uploads), maintains a **live rolling 20-second pre-event buffer**, streams **real-time live viewer chat**, detects viral gameplay hype spikes, scores highlights **0–100**, and **automatically generates & downloads BOTH a lossless `1920×1080 @ 60fps` Original MP4 AND a full-length, full-frame `1080×1920 @ 60fps` Vertical Short MP4** (up to full 60s Shorts length, nothing cropped off) — pausing auto-download with a warning if copyrighted music is detected (audio never modified without permission).
 
@@ -8,15 +8,31 @@ Built to run out of the box on **Windows 10/11 (CMD & PowerShell)**, **macOS**, 
 
 ## Quick Start (Windows / macOS / Linux)
 
-Only **Node.js 18+** is required. Everything else — the WebAssembly SQLite database (`sql.js`) and static `ffmpeg` + `ffprobe` binaries (`ffmpeg-static`, `ffprobe-static`) — installs automatically via `npm install`.
+Requires **Node.js 18.18+**. The WebAssembly SQLite database (`sql.js`) is a normal dependency; the static `ffmpeg`/`ffprobe` binaries are **optional dependencies** and can be skipped by npm on some networks — check `curl localhost:3000/api/health` after boot.
 
 ```bash
-cd clipx-ai
 npm install
 npm run dev
 ```
 
 Then open **http://localhost:3000** in your browser.
+
+### Verify the install
+
+```bash
+curl -s localhost:3000/api/health | jq
+# {"ok":true, ..., "media":{"ready":true, "ffmpeg":{...}, "ffprobe":{...}}}
+
+npm run smoke     # 18 HTTP checks: auth, ownership, traversal, rate limits
+```
+
+If `/api/health` reports `media.ready: false`, clip capture/editing is disabled:
+
+- install FFmpeg + FFprobe on your `PATH`, **or**
+- set `FFMPEG_PATH` / `FFPROBE_PATH`, **or**
+- reinstall with optional binaries: `npm install --include=optional`
+
+The server prints the same warning at boot — it will never silently pretend video processing works.
 
 ### Production Build & Start (Optional)
 
@@ -30,6 +46,29 @@ npm start
 - **Email:** `demo@clipx.ai`
 - **Password:** `DemoClipX2026!`
 - *(Or click **1-Click Demo Login** on `/auth`, or create your own account.)*
+
+> The demo account is **shared by everyone** who can reach the instance. Set
+> `CLIPX_DISABLE_DEMO_ACCOUNT=true` on any public deployment.
+
+### Security model (v1.5.0)
+
+- **Sessions** are HS256 JWTs in an HttpOnly, SameSite=Lax cookie; the cookie is
+  marked `Secure` automatically when the request arrives over HTTPS.
+- **No signing secret is baked into the source.** `CLIPX_AUTH_SECRET` (or
+  `JWT_SECRET`) is used when set — at least 32 characters — otherwise a unique
+  key is generated on first boot at `data/auth-secret` (mode `0600`,
+  git-ignored). Set it explicitly for multi-instance deployments.
+- **Every mutating route requires authentication and ownership**: connecting a
+  stream, uploading footage, changing settings, retuning/stopping/deleting a
+  stream, and capturing clips are all scoped to the signed-in owner. Only the
+  bundled demo sandbox is triggerable by guests, and it is never writable.
+- **Rate limits** are applied to login, registration, demo login, uploads,
+  stream connections, captures and discovery.
+- **Media** is served from a single guarded route; traversal attempts return 403.
+- **Dependencies** are on Next.js 15.5 (patched for the RCE advisories that
+  affect 14.2.x) with a clean production `npm audit`.
+
+See [`ANALYSIS.md`](./ANALYSIS.md) for the full review and the items still open.
 
 ---
 
@@ -51,7 +90,7 @@ Once connected:
      - **100% Full Clip Duration** (`0.00s → end`, configurable up to a **full `60s` Short** via `28s` / `45s` / `60s Full` presets), and
      - **100% Full Widescreen Frame** (`Full Frame HD + Blurred Canvas` default so facecam, minimap, HUD, crosshair, and killfeed are all visible with zero cut-off edges; plus `Facecam Split` and `9:16 Zoom` options), with headline above and timed subtitles below so zero gameplay is covered,
    - **Auto-saves BOTH files** side-by-side in `clipx-ai/exports/` (`..._ORIGINAL_16x9.mp4` + `..._SHORT_9x16.mp4`) **and auto-downloads BOTH** straight to your browser's Downloads folder,
-   - **Copyright Safety Guard:** If potentially copyrighted music is detected, automatic download pauses and shows a warning modal so you can click **I Understand — Download Both (16:9 + 9:16)**, **Open Editor**, or **Skip Auto-Download (Keep Saved)** — original audio is never modified automatically.
+   - **Copyright Safety Guard:** A local audio heuristic (mid-band RMS vs. transient crest — **not** a fingerprint database) flags a possible music bed, and automatic download pauses and shows a warning modal so you can click **I Understand — Download Both (16:9 + 9:16)**, **Open Editor**, or **Skip Auto-Download (Keep Saved)** — original audio is never modified automatically.
    - Applies duplicate-prevention cooldown and keeps monitoring for the next hype moment automatically.
 3. Click **Clip Now (Save 16:9 + 9:16 Short)** anytime for an instant manual dual capture, or fine-tune any clip in the **Studio Video Editor (`/editor`)**.
 
@@ -62,8 +101,8 @@ Once connected:
 ## Tech Stack
 
 - **Frontend:** Next.js 14.2.35 (App Router), React 18, TypeScript, Tailwind CSS
-- **Backend:** Custom Node.js HTTP + WebSocket Server (`server.mjs`, `/api/ws`) + 19 REST API routes
-- **Database:** Pure WebAssembly SQLite (`sql.js`, persisted to `data/clipx.db` — zero native C++/`node-gyp` build dependencies) + full Supabase PostgreSQL schema & RLS policies in `supabase/schema.sql`
+- **Backend:** Custom Node.js HTTP + WebSocket Server (`server.mjs`, `/api/ws`) + 21 REST API routes (including `/api/health`)
+- **Database:** Pure WebAssembly SQLite (`sql.js`, persisted to `data/clipx.db` — zero native C++/`node-gyp` build dependencies) + Supabase PostgreSQL schema with ownership RLS policies in `supabase/schema.sql`
 - **Video & Audio Processing:** FFmpeg + FFprobe (automatically uses system `ffmpeg`/`ffprobe` if on `PATH`, or bundled `ffmpeg-static` + `ffprobe-static` binaries)
 - **Authentication:** `bcryptjs` password hashing + `jose` signed HttpOnly JWT cookies + optional Supabase Auth dual-sync
 
@@ -83,31 +122,47 @@ Once connected:
 
 ---
 
-## Optional Environment Variables
+## Environment Variables
 
-Copy `.env.example` to `.env.local` if you want to configure custom secrets, Supabase, or platform API keys via environment variables (you can also enter Twitch/YouTube/Kick API credentials directly on the `/settings` page):
+Everything is optional for local development — copy `.env.example` to `.env.local`
+if you want to pin values.
 
 ```bash
-JWT_SECRET=replace-with-a-random-32-char-secret
+# Session signing key. REQUIRED for multi-instance deployments.
+# Must be at least 32 characters. If unset, a unique key is generated at
+# data/auth-secret on first boot (single-instance convenience only).
+CLIPX_AUTH_SECRET=
+
 PORT=3000
 
-# Optional Supabase dual-sync (run supabase/schema.sql in your Supabase SQL editor)
+# Set when the app is served over HTTPS behind a proxy (used for secure cookies)
+CLIPX_PUBLIC_URL=
+
+# Disable the shared demo account on public deployments
+CLIPX_DISABLE_DEMO_ACCOUNT=false
+
+# Optional Supabase Auth dual-sync (run supabase/schema.sql in your SQL editor)
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
-# Optional Official Streaming Platform APIs
+# Optional official streaming platform APIs (can also be set on /settings)
 TWITCH_CLIENT_ID=
 TWITCH_ACCESS_TOKEN=
 YOUTUBE_API_KEY=
 KICK_API_TOKEN=
 
-# Optional custom FFmpeg/FFprobe binary paths (auto-detected otherwise)
+# Optional explicit media binaries (auto-detected otherwise)
 FFMPEG_PATH=
 FFPROBE_PATH=
 ```
 
----
+`JWT_SECRET` is still accepted as an alias for `CLIPX_AUTH_SECRET` for
+backwards compatibility, but the two must not disagree.
+
+> Note: platform API tokens entered on `/settings` are stored **unencrypted**
+> in `data/clipx.db`. Treat that file as a secret, or keep credentials in the
+> environment instead.
 
 ## Troubleshooting on Windows
 

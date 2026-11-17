@@ -3,6 +3,8 @@
 **Analyzed:** 2026-11-17 · branch `arena/5af5ddc6-al-cuts` @ `e021333` · reviewer: Arena agent
 **Method:** static review of every source file, dependency audit, and a live build + runtime smoke test of the app extracted from `clipx-ai-project6.zip`.
 
+> **Status update:** the P0 and P1 findings below were fixed and verified in **v1.5.0** — see [§9 Remediation log](#9-remediation-log--v150-2026-11-17). The grades and findings in §1–§8 describe the repository as it was at commit `e021333`.
+
 ---
 
 ## 1. Executive summary
@@ -314,3 +316,37 @@ grep -ic policy supabase/schema.sql               # 0
 ### Closing assessment
 
 The engineering underneath CLIPX AI is better than the packaging suggests: a working HLS ring-buffer capture engine, real FFmpeg compositing with ASS captions, a coherent schema, and a detailed UI — built by someone who understands the domain. But the repo presents it as a v1.4.0 SaaS ("zero config, production-ready") while shipping a forgeable auth secret, unauthorised destructive endpoints, anonymous writes, a half-missing media toolchain, a copyright check that can falsely clear content, and a framework with critical RCEs. **Treat it as an impressive prototype: local demo only, until P0 is done.**
+
+---
+
+## 9. Remediation log — v1.5.0 (2026-11-17)
+
+The P0/P1 items below were implemented on branch `arena/5af5ddc6-al-cuts` and verified against a live build (Next.js 15.5.29, real FFmpeg, `npm run smoke` → 18/18).
+
+### Repository hygiene
+- **Source is now in the repository**: `src/`, `scripts/`, `public/`, `supabase/` live at the root; `clipx-ai-project6.zip` was removed. `npm install && npm run dev` works from a fresh clone.
+- Root config is byte-identical to what was inside the zip, so no behaviour changed by the move.
+
+### P0 fixes (all verified)
+| Finding | Fix | Evidence |
+|---|---|---|
+| S1 forgeable sessions | Removed the hardcoded fallback. `CLIPX_AUTH_SECRET`/`JWT_SECRET` (≥32 chars) or a generated `data/auth-secret` (0600) key | forged legacy token → `/api/auth/me` returns `user: null` |
+| S2 missing stream authorization | `canModifyStream` / `canTriggerStream` / `canReadStream` in `lib/auth.ts`, applied to PATCH, DELETE, trigger; `scan-music` reuses `canUserExportClip` | owner B → 403 on A's stream; anonymous → 401; owner → 200 |
+| S3 anonymous writes | Streams, uploads and settings now require authentication; guest settings no longer alias to `user-demo` | guest POST stream/settings/upload → 401 |
+| S4 vulnerable framework | Next 14.2.35 → **15.5.29**, postcss → 8.5.33, zod → 4.6.7; async `cookies()`/route-params migration; `serverExternalPackages` + `allowedDevOrigins` for the custom server | `next build` clean, `npm audit --omit=dev` clean |
+
+### P1 fixes
+- **FFmpeg visibility:** `GET /api/health` reports binary presence/version (`503` when unusable); `server.mjs` probes it at boot and prints a clear warning; `describeMediaToolchain()` in `lib/ffmpeg.ts`; binary resolution no longer makes the bundler emit warnings.
+- **Honest music scan:** removed the fabricated "Acoustic ID", relabelled output as a signal-level heuristic, and an unusable scan now returns *"Audio analysis unavailable — NO copyright check was performed"* instead of a false "clean".
+- **Rate limiting:** `lib/rate-limit.ts` (per-IP fixed window) on login, register, demo login, upload, stream connect, capture and discovery; verified `429` on the 9th bad login.
+- **Headers/cookies:** `Secure` cookies when the request is HTTPS; wildcard CORS removed; `nosniff`, `Referrer-Policy`, `Permissions-Policy`, HSTS in production.
+- **Docs/config:** `.env.example` and README rewritten to one canonical variable list (`CLIPX_AUTH_SECRET`, `CLIPX_PUBLIC_URL`, `CLIPX_DISABLE_DEMO_ACCOUNT`, `FFMPEG_PATH`, `FFPROBE_PATH`); README claims corrected (21 routes, heuristic music check, real Supabase RLS policies); `engines.node` added; demo-account kill switch; `SECURITY.md` added.
+- **Supabase schema:** added 14 ownership RLS policies (previously RLS was enabled with none).
+- **Tests:** `npm run smoke` (`scripts/smoke-test.mjs`) asserts pages, media range serving, traversal blocking, session forgery, anonymous writes, demo read-only, and rate limiting.
+
+### Still open (unchanged from §7 P2)
+- `/api/ws` still broadcasts every stream's events to every client (per-user filtering needs an authenticated WS handshake).
+- `sql.js` full-file rewrite per write; in-memory sessions; no worker/queue.
+- Platform tokens remain unencrypted in SQLite.
+- No LICENSE, ESLint/Prettier, or CI (recommend adding a workflow running `npm run build && npm run smoke`).
+- 52 bare `catch {}` blocks and the 2k-line modules are untouched.
