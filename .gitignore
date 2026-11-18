@@ -12,3 +12,8 @@ public/media/uploads/*
 .env.*.local
 *.tsbuildinfo
 next-env.d.ts
+
+# Desktop packaging output
+release/
+dist/
+data/desktop.log

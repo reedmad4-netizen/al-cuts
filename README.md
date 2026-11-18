@@ -6,6 +6,24 @@ Built to run out of the box on **Windows 10/11 (CMD & PowerShell)**, **macOS**, 
 
 ---
 
+## Desktop app (Windows / macOS / Linux)
+
+Prefer a double-clickable app over a terminal? See **[`DESKTOP.md`](./DESKTOP.md)**.
+
+```bash
+npm run desktop            # starts the app and opens it in its own window
+npm run desktop:shortcut   # adds "CLIPX AI" to your desktop / app menu
+npm run desktop:selftest   # 14 checks that the desktop packaging works
+```
+
+The launcher starts the server on a free port, waits until it is healthy, opens a
+chromeless app window (Edge/Chrome `--app`), and stops the server when you close
+it. Electron installers for Windows/macOS/Linux (`.exe`, `.dmg`, `.AppImage`) can
+be built with `npm run desktop:dist:<os>` or downloaded from the *Desktop
+installers* GitHub Actions workflow.
+
+---
+
 ## Quick Start (Windows / macOS / Linux)
 
 Requires **Node.js 18.18+**. The WebAssembly SQLite database (`sql.js`) is a normal dependency; the static `ffmpeg`/`ffprobe` binaries are **optional dependencies** and can be skipped by npm on some networks — check `curl localhost:3000/api/health` after boot.

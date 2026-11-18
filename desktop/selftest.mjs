@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+/**
+ * Desktop self-test — proves the packaging logic works without a GUI.
+ *
+ * 1. `launch.mjs --check` starts the real server, waits for health, stops it.
+ * 2. The packaged-app workspace (used by the Electron build) is created from
+ *    this repo, then a server is started *from that workspace* to prove the
+ *    linked `.next`/`node_modules` and writable `data/`, `public/media` work.
+ *
+ * Run: npm run desktop:selftest
+ */
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url);
+const { prepareWorkspace } = require("./electron/workspace.cjs");
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const results = [];
+const check = (name, ok, detail = "") => {
+  results.push({ name, ok, detail });
+  console.log(`  ${ok ? "✅" : "❌"} ${name}${detail && !ok ? ` — ${detail}` : ""}`);
+};
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function waitHealth(port, timeoutMs = 180_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      const body = await res.json().catch(() => null);
+      if (body) return body;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  return null;
+}
+
+function runLauncherCheck() {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ["desktop/launch.mjs", "--check"], {
+      cwd: ROOT,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    child.on("exit", (code) => resolve({ code, out }));
+  });
+}
+
+async function main() {
+  console.log("\nDesktop self-test\n");
+  if (!fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"))) {
+    console.error("No production build — run `npm run build` first.");
+    process.exit(1);
+  }
+
+  // ---- 1. launcher ----
+  console.log("launcher");
+  const launcher = await runLauncherCheck();
+  check("launcher starts the server and reaches health", launcher.code === 0, `exit ${launcher.code}`);
+  check(
+    "launcher shuts the server down again",
+    /Shutting down the app server/.test(launcher.out)
+  );
+
+  // ---- 2. packaged workspace ----
+  console.log("\npackaged workspace");
+  const userDataDir = path.join(os.tmpdir(), "clipx-desktop-selftest");
+  fs.rmSync(userDataDir, { recursive: true, force: true });
+
+  const first = prepareWorkspace({ appDir: ROOT, userDataDir });
+  const ws = first.workspace;
+  const realpath = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return "";
+    }
+  };
+
+  check("fresh install detected", first.reinstalled === true);
+  check("server entry copied", fs.existsSync(path.join(ws, "server.mjs")));
+  check("runtime shim copied", fs.existsSync(path.join(ws, "scripts", "node-compat.mjs")));
+  check(".next linked to the app", realpath(path.join(ws, ".next")) === realpath(path.join(ROOT, ".next")));
+  check(
+    "node_modules linked to the app",
+    realpath(path.join(ws, "node_modules")) === realpath(path.join(ROOT, "node_modules"))
+  );
+  check(
+    "media directories are writable",
+    (() => {
+      try {
+        const probe = path.join(ws, "public", "media", "clips", ".probe");
+        fs.writeFileSync(probe, "x");
+        fs.rmSync(probe);
+        return true;
+      } catch {
+        return false;
+      }
+    })()
+  );
+  check(
+    "demo media seeded",
+    fs.readdirSync(path.join(ws, "public", "media", "generated")).length > 0
+  );
+
+  const second = prepareWorkspace({ appDir: ROOT, userDataDir });
+  check("second launch reuses the workspace", second.reused === true);
+
+  const port = await freePort();
+  const child = spawn(process.execPath, ["server.mjs", "--prod"], {
+    cwd: ws,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      NODE_ENV: "production",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let log = "";
+  child.stdout.on("data", (d) => (log += d));
+  child.stderr.on("data", (d) => (log += d));
+
+  const health = await waitHealth(port);
+  check("server starts from the workspace", Boolean(health), log.slice(-300));
+  if (health) {
+    check("health reports the app version", Boolean(health.version), JSON.stringify(health).slice(0, 120));
+
+    // Writes only happen on real use, so make the app do some: sign in (creates
+    // the session key + demo user) and then check the files landed in the
+    // workspace rather than beside the (read-only) install directory.
+    const login = await fetch(`http://127.0.0.1:${port}/api/auth/demo`, {
+      method: "POST",
+    }).catch(() => null);
+    check("demo login works from the packaged app", login?.ok === true, `HTTP ${login?.status}`);
+    check(
+      "the app writes its database into the workspace",
+      fs.existsSync(path.join(ws, "data", "clipx.db")),
+      fs.readdirSync(path.join(ws, "data")).join(",")
+    );
+  }
+  child.kill("SIGTERM");
+  await new Promise((r) => setTimeout(r, 500));
+  fs.rmSync(userDataDir, { recursive: true, force: true });
+
+  const failed = results.filter((r) => !r.ok).length;
+  console.log(
+    failed === 0
+      ? `\n✅ PASS — ${results.length} checks\n`
+      : `\n❌ FAIL — ${failed} of ${results.length} checks failed\n`
+  );
+  process.exit(failed === 0 ? 0 : 1);
+}
+
+main().catch((err) => {
+  console.error("Self-test crashed:", err);
+  process.exit(1);
+});

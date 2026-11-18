@@ -11,7 +11,15 @@
     "smoke": "node scripts/smoke-test.mjs",
     "test:s3": "node scripts/test-s3-signer.mjs",
     "test:social": "node scripts/test-instagram-flow.mjs",
-    "test:youtube": "node scripts/test-youtube-flow.mjs"
+    "test:youtube": "node scripts/test-youtube-flow.mjs",
+    "desktop": "node desktop/launch.mjs",
+    "desktop:check": "node desktop/launch.mjs --check",
+    "desktop:selftest": "node desktop/selftest.mjs",
+    "desktop:shortcut": "node desktop/install-shortcut.mjs",
+    "desktop:dist": "electron-builder --publish never",
+    "desktop:dist:win": "electron-builder --win --publish never",
+    "desktop:dist:mac": "electron-builder --mac --publish never",
+    "desktop:dist:linux": "electron-builder --linux --publish never"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
@@ -44,5 +52,89 @@
   },
   "engines": {
     "node": ">=18.18.0"
+  },
+  "main": "desktop/electron/main.cjs",
+  "build": {
+    "appId": "ai.clipx.desktop",
+    "productName": "CLIPX AI",
+    "copyright": "CLIPX AI",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/electron/**",
+      "desktop/version.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".next",
+        "to": "app/.next"
+      },
+      {
+        "from": "node_modules",
+        "to": "app/node_modules",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/test/**",
+          "!**/tests/**"
+        ]
+      },
+      {
+        "from": "public",
+        "to": "app/public"
+      },
+      {
+        "from": "scripts",
+        "to": "app/scripts"
+      },
+      {
+        "from": "server.mjs",
+        "to": "app/server.mjs"
+      },
+      {
+        "from": "next.config.mjs",
+        "to": "app/next.config.mjs"
+      },
+      {
+        "from": "package.json",
+        "to": "app/package.json"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "CLIPX-AI-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.video",
+      "artifactName": "CLIPX-AI-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "AudioVideo",
+      "artifactName": "CLIPX-AI-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "CLIPX AI"
+    }
   }
 }
