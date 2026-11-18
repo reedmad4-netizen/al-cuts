@@ -13,7 +13,7 @@ Prefer a double-clickable app over a terminal? See **[`DESKTOP.md`](./DESKTOP.md
 ```bash
 npm run desktop            # starts the app and opens it in its own window
 npm run desktop:shortcut   # adds "CLIPX AI" to your desktop / app menu
-npm run desktop:selftest   # 15 checks that the desktop packaging works
+npm run desktop:selftest   # 18 checks that the desktop packaging works
 ```
 
 The launcher starts the server on a free port, waits until it is healthy, opens a

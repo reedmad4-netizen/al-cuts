@@ -22,8 +22,11 @@ const VERSION = require("../version.cjs").VERSION;
 
 function linkDir(target, linkPath) {
   fs.rmSync(linkPath, { recursive: true, force: true });
+  // Always absolute: a relative target would be resolved from the workspace and
+  // dangle. Windows junctions need an absolute target anyway.
+  const absolute = path.resolve(target);
   // Windows junctions work without admin rights; POSIX symlinks are the norm.
-  fs.symlinkSync(target, linkPath, process.platform === "win32" ? "junction" : "dir");
+  fs.symlinkSync(absolute, linkPath, process.platform === "win32" ? "junction" : "dir");
 }
 
 function copyIfNewer(from, to) {
@@ -68,12 +71,19 @@ function prepareWorkspace({ appDir, userDataDir, version = VERSION }) {
   fs.mkdirSync(workspace, { recursive: true });
 
   // --- code (cheap to copy, must refresh on every version) ---
-  const code = ["server.mjs", "next.config.mjs", "package.json"];
+  const code = ["server.mjs", "next.config.mjs"];
   for (const file of code) {
     const from = path.join(appDir, file);
     if (!fs.existsSync(from)) continue;
     copyIfNewer(from, path.join(workspace, file));
   }
+
+  // The packaged app ships a slim runtime manifest instead of the project's
+  // package.json (which electron-builder keeps inside app.asar).
+  const manifest = ["runtime-package.json", "app-package.json", "package.json"]
+    .map((name) => path.join(appDir, name))
+    .find((file) => fs.existsSync(file));
+  if (manifest) copyIfNewer(manifest, path.join(workspace, "package.json"));
   copyTree(path.join(appDir, "scripts"), path.join(workspace, "scripts"));
 
   // --- dependencies and build output (link, unless already linked) ---
@@ -114,7 +124,7 @@ function prepareWorkspace({ appDir, userDataDir, version = VERSION }) {
   }
 
   if (!upToDate) {
-    for (const dir of ["generated", "posters"]) {
+    for (const dir of ["clips", "posters", "streams"]) {
       const from = path.join(appDir, "public", "media", dir);
       if (!fs.existsSync(from)) continue;
       for (const entry of fs.readdirSync(from, { withFileTypes: true })) {

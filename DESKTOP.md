@@ -149,7 +149,7 @@ a (draft) **Releases → v1.7.0** entry — a direct download link for the `.exe
 npm run desktop:selftest
 ```
 
-15 checks, no GUI required:
+18 checks, no GUI required:
 
 ```
 launcher
@@ -166,12 +166,50 @@ packaged workspace
   ✅ demo media seeded
   ✅ second launch reuses the workspace
   ✅ server starts from the workspace
+  ✅ static public assets reach the app
+  ✅ runtime manifest in the workspace
   ✅ health reports the app version
   ✅ demo login works from the packaged app
   ✅ the app writes its database into the workspace
 ```
 
 `npm run desktop:check` is the smaller version (start → health → stop).
+
+If `release/` contains an unpacked build (`release/win-unpacked`, `…/linux-unpacked`,
+`…/CLIPX AI.app`), the self-test automatically validates **that artifact** instead of
+the source tree — the checks read "testing the packaged app".
+
+`npm run desktop:dist` also verifies the packaged tree after building (package.json,
+`server.mjs`, `.next/BUILD_ID`, `node_modules/next`, the demo clips, the Electron
+entry point) and prints the size, so a broken packaging config fails loudly instead
+of shipping an installer that cannot start.
+
+### Packaging details worth knowing
+
+- **`asar` is off.** The app server runs as a child process and needs a real
+  `node_modules` directory it can link into its writable workspace; a plain
+  directory is the simple, verifiable option. Cost: a few thousand loose files.
+- **The app directory only contains** the Electron entry point, `package.json`,
+  the production dependencies, `.next` (without its 187 MB build cache), the demo
+  clips/posters, `scripts/`, `server.mjs` and `next.config.mjs`. Everything else in
+  the repo (`src/`, `public/media/generated`, `exports/`, `data/`) stays out.
+- **Other platforms' binaries are pruned** per target — Next's SWC and sharp ship
+  one package per OS/arch, and `ffprobe-static` ships every platform. Without
+  pruning the app directory is ~1.7 GB; with it, ~530 MB (installer compresses to
+  roughly 180–250 MB).
+- **Bundled FFmpeg**: `ffmpeg-static`/`ffprobe-static` are installed as optional
+  dependencies, and the Electron shell passes their paths to the server, so video
+  features work without the user installing FFmpeg.
+- **The workspace manifest is `runtime-package.json`**, not `app/package.json`.
+  Listing the project's `package.json` in `extraResources` is a known
+  electron-builder bug ([#4160](https://github.com/electron-userland/electron-builder/issues/4160))
+  that makes packaging fail with *Application "package.json" … does not exist*.
+
+Quick check without building an installer (≈20 s):
+
+```bash
+npx electron-builder --config .desktop-build.json --win --dir
+```
 
 ---
 

@@ -75,6 +75,25 @@ function portIsFree(port, timeoutMs = 4000) {
   });
 }
 
+/**
+ * When `npm run desktop:dist*` has produced an unpacked app, test *that* — it is
+ * the thing users install. Falls back to the source tree.
+ */
+function findPackagedApp() {
+  const release = path.join(ROOT, "release");
+  if (!fs.existsSync(release)) return null;
+  for (const dir of fs.readdirSync(release)) {
+    const candidates = [
+      path.join(release, dir, "resources", "app"),
+      path.join(release, dir, "CLIPX AI.app", "Contents", "Resources", "app"),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(path.join(candidate, "server.mjs"))) return candidate;
+    }
+  }
+  return null;
+}
+
 function runLauncherCheck() {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["desktop/launch.mjs", "--check"], {
@@ -119,11 +138,20 @@ async function main() {
   const userDataDir = path.join(os.tmpdir(), "clipx-desktop-selftest");
   fs.rmSync(userDataDir, { recursive: true, force: true });
 
+  const packagedApp = findPackagedApp();
+  const appDir = packagedApp || ROOT;
+  check(
+    "testing the packaged app" + (packagedApp ? "" : " (none built — using the source tree)"),
+    true,
+    ""
+  );
+
   // A marker file proves non-media static assets reach the packaged workspace.
-  const marker = path.join(ROOT, "public", "desktop-selftest-marker.txt");
+  const marker = path.join(appDir, "public", "desktop-selftest-marker.txt");
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
   fs.writeFileSync(marker, "static asset probe\n");
 
-  const first = prepareWorkspace({ appDir: ROOT, userDataDir });
+  const first = prepareWorkspace({ appDir, userDataDir });
   const ws = first.workspace;
   const realpath = (p) => {
     try {
@@ -136,10 +164,10 @@ async function main() {
   check("fresh install detected", first.reinstalled === true);
   check("server entry copied", fs.existsSync(path.join(ws, "server.mjs")));
   check("runtime shim copied", fs.existsSync(path.join(ws, "scripts", "node-compat.mjs")));
-  check(".next linked to the app", realpath(path.join(ws, ".next")) === realpath(path.join(ROOT, ".next")));
+  check(".next linked to the app", realpath(path.join(ws, ".next")) === realpath(path.join(appDir, ".next")));
   check(
     "node_modules linked to the app",
-    realpath(path.join(ws, "node_modules")) === realpath(path.join(ROOT, "node_modules"))
+    realpath(path.join(ws, "node_modules")) === realpath(path.join(appDir, "node_modules"))
   );
   check(
     "static public assets reach the app",
@@ -160,10 +188,23 @@ async function main() {
   );
   check(
     "demo media seeded",
-    fs.readdirSync(path.join(ws, "public", "media", "generated")).length > 0
+    ["clips", "posters", "streams"].some(
+      (dir) => fs.readdirSync(path.join(ws, "public", "media", dir)).length > 0
+    )
+  );
+  check(
+    "runtime manifest in the workspace",
+    (() => {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(ws, "package.json"), "utf8"));
+        return Boolean(manifest.version);
+      } catch {
+        return false;
+      }
+    })()
   );
 
-  const second = prepareWorkspace({ appDir: ROOT, userDataDir });
+  const second = prepareWorkspace({ appDir, userDataDir });
   check("second launch reuses the workspace", second.reused === true);
 
   const port = await freePort();

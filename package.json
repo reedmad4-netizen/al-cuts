@@ -70,21 +70,23 @@
     "extraResources": [
       {
         "from": ".next",
-        "to": "app/.next"
-      },
-      {
-        "from": "node_modules",
-        "to": "app/node_modules",
+        "to": "app/.next",
         "filter": [
           "**/*",
-          "!**/*.md",
-          "!**/test/**",
-          "!**/tests/**"
+          "!cache/**"
         ]
       },
       {
-        "from": "public",
-        "to": "app/public"
+        "from": "public/media/clips",
+        "to": "app/public/media/clips"
+      },
+      {
+        "from": "public/media/posters",
+        "to": "app/public/media/posters"
+      },
+      {
+        "from": "public/media/streams",
+        "to": "app/public/media/streams"
       },
       {
         "from": "scripts",
@@ -99,8 +101,8 @@
         "to": "app/next.config.mjs"
       },
       {
-        "from": "package.json",
-        "to": "app/package.json"
+        "from": "desktop/runtime/app-package.json",
+        "to": "app/runtime-package.json"
       }
     ],
     "win": {
@@ -135,7 +137,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "CLIPX AI"
-    }
+    },
+    "asar": false
   },
   "author": {
     "name": "CLIPX AI",

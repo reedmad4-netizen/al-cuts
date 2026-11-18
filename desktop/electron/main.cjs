@@ -45,6 +45,35 @@ async function waitForServer(url, timeoutMs = 120_000) {
   return false;
 }
 
+/**
+ * The packaged app ships `ffmpeg-static` / `ffprobe-static` inside its own
+ * node_modules. Passing the paths explicitly makes video support deterministic
+ * instead of depending on how the server process resolves modules from the
+ * linked workspace.
+ */
+function bundledMediaTools() {
+  const exe = process.platform === "win32" ? ".exe" : "";
+  const ffmpeg = path.join(APP_DIR, "node_modules", "ffmpeg-static", `ffmpeg${exe}`);
+  const ffprobe = path.join(
+    APP_DIR,
+    "node_modules",
+    "ffprobe-static",
+    "bin",
+    process.platform,
+    process.arch,
+    `ffprobe${exe}`
+  );
+  const found = {};
+  for (const [key, file] of [["FFMPEG_PATH", ffmpeg], ["FFPROBE_PATH", ffprobe]]) {
+    try {
+      if (fs.statSync(file).isFile()) found[key] = file;
+    } catch {
+      /* not bundled for this platform */
+    }
+  }
+  return found;
+}
+
 async function startServer() {
   const { workspace } = prepareWorkspace({
     appDir: APP_DIR,
@@ -62,6 +91,7 @@ async function startServer() {
       NODE_ENV: "production",
       // Electron's bundled Node runtime instead of a system Node install.
       ELECTRON_RUN_AS_NODE: "1",
+      ...bundledMediaTools(),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
