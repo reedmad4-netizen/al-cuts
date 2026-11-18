@@ -1,0 +1,7 @@
+{
+  "name": "clipx-ai",
+  "version": "1.7.0",
+  "private": true,
+  "description": "CLIPX AI — AI-Powered Automatic Gaming Clip Generator (Zero Native Build Tools Required)",
+  "main": "server.mjs"
+}

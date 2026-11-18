@@ -125,7 +125,10 @@ const server = createServer((req, res) => {
   handle(req, res, parsedUrl);
 });
 
-const nextUpgradeHandler = app.getUpgradeHandler();
+const nextUpgradeHandler =
+  typeof app.getUpgradeHandler === "function"
+    ? app.getUpgradeHandler()
+    : null;
 
 server.on("upgrade", (req, socket, head) => {
   const { pathname } = parseRequestUrl(req.url || "/");
@@ -133,8 +136,10 @@ server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });
-  } else {
+  } else if (nextUpgradeHandler) {
     nextUpgradeHandler(req, socket, head);
+  } else {
+    socket.destroy();
   }
 });
 
@@ -151,11 +156,33 @@ setInterval(() => {
   }
 }, 25000);
 
-server.listen(port, hostname, () => {
+server.listen(port, hostname, async () => {
   console.log(
     `\n> CLIPX AI ready in ${dev ? "development" : "production"} mode`
   );
   console.log(`> Local:      http://localhost:${port}`);
   console.log(`> Network:    http://${hostname}:${port}`);
   console.log(`> WebSockets: ws://localhost:${port}/api/ws\n`);
+
+  // Ask our own health endpoint whether the media toolchain is present.
+  // `ffmpeg-static`/`ffprobe-static` are optional dependencies and can be
+  // skipped silently, which used to leave every capture/edit dead with no
+  // explanation. Never fail startup for it — just say so loudly.
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+    const health = await res.json();
+    if (!health?.media?.ready) {
+      console.warn(
+        "[CLIPX AI] WARNING: FFmpeg/FFprobe not available — clip capture, editing and export are disabled.\n" +
+          "           Install FFmpeg on your PATH, set FFMPEG_PATH/FFPROBE_PATH, or run `npm install --include=optional`."
+      );
+    }
+    if (health?.auth?.secretFromEnv === false) {
+      console.warn(
+        "[CLIPX AI] No CLIPX_AUTH_SECRET set — using the generated key in data/auth-secret. Set it explicitly for multi-instance deployments."
+      );
+    }
+  } catch {
+    // Health probe is best-effort; never block startup on it.
+  }
 });
