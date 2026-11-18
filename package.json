@@ -16,10 +16,10 @@
     "desktop:check": "node desktop/launch.mjs --check",
     "desktop:selftest": "node desktop/selftest.mjs",
     "desktop:shortcut": "node desktop/install-shortcut.mjs",
-    "desktop:dist": "electron-builder --publish never",
-    "desktop:dist:win": "electron-builder --win --publish never",
-    "desktop:dist:mac": "electron-builder --mac --publish never",
-    "desktop:dist:linux": "electron-builder --linux --publish never"
+    "desktop:dist": "node desktop/dist.mjs",
+    "desktop:dist:win": "node desktop/dist.mjs win",
+    "desktop:dist:mac": "node desktop/dist.mjs mac",
+    "desktop:dist:linux": "node desktop/dist.mjs linux"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
@@ -136,5 +136,10 @@
       "createDesktopShortcut": true,
       "shortcutName": "CLIPX AI"
     }
-  }
+  },
+  "author": {
+    "name": "CLIPX AI",
+    "email": "noreply@clipx.ai"
+  },
+  "license": "UNLICENSED"
 }

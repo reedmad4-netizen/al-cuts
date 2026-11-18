@@ -98,6 +98,21 @@ function prepareWorkspace({ appDir, userDataDir, version = VERSION }) {
   const mediaRoot = path.join(workspace, "public", "media");
   for (const dir of mediaDirs) fs.mkdirSync(path.join(mediaRoot, dir), { recursive: true });
 
+  // Everything else under public/ (favicons, images, robots.txt…) is read-only
+  // static content: link it so the app can serve it without copying, while
+  // public/media above stays a real writable directory.
+  const publicSrc = path.join(appDir, "public");
+  if (fs.existsSync(publicSrc)) {
+    for (const entry of fs.readdirSync(publicSrc, { withFileTypes: true })) {
+      if (entry.name === "media") continue;
+      const src = path.join(publicSrc, entry.name);
+      const dst = path.join(workspace, "public", entry.name);
+      if (fs.existsSync(dst)) continue;
+      if (entry.isDirectory()) linkDir(src, dst);
+      else if (entry.isFile()) copyIfNewer(src, dst);
+    }
+  }
+
   if (!upToDate) {
     for (const dir of ["generated", "posters"]) {
       const from = path.join(appDir, "public", "media", dir);

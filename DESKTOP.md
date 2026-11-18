@@ -96,16 +96,50 @@ Cross-building caveats: a Windows installer must be built **on Windows** (or in 
 unless wine is installed; macOS `.dmg` must be built on macOS. Unsigned builds
 show SmartScreen/Gatekeeper warnings — expected for an unsigned app.
 
-### Build them without a dev machine
+### Where does the `.exe` come from?
 
-`.github/workflows/desktop.yml` builds all three OSes and uploads the installers as
-artifacts:
+GitHub only shows a workflow's **Run workflow** button when the workflow file is on
+the repo's default branch, so pick one:
 
-1. Push this branch to GitHub.
-2. **Actions → Desktop installers → Run workflow**.
-3. Download `clipx-ai-win` → `CLIPX-AI-<version>-x64.exe`.
+**A. You have a Windows PC (no GitHub needed)**
 
-Tagging `v1.7.0` runs it automatically.
+```bat
+git clone https://github.com/reedmad4-netizen/al-cuts.git
+cd al-cuts
+git checkout arena/5af5ddc6-al-cuts
+npm install
+npm run build
+npm run desktop:dist:win
+```
+
+`npm run desktop:dist:win` installs the Electron tooling on first use, packages the
+app, and prints the result:
+
+```
+✅ Done. Installers:
+   release\CLIPX-AI-1.7.0-x64.exe  (280 MB)   ← double-click to install
+   release\CLIPX-AI-1.7.0-x64.exe  (portable)
+```
+
+**B. Merge this branch into `main`, then use the Actions button**
+
+1. Merge PR #1 (or just the desktop commits) into `main`.
+2. **Actions → Desktop installers → Run workflow** (branch: any).
+3. Wait ~10–15 min; open the finished run → **Artifacts → `clipx-ai-win`** →
+   download the `.zip` → unzip → `CLIPX-AI-<version>-x64.exe`.
+
+**C. Push a `v*` tag — no merge needed, files land on the Releases page**
+
+```bash
+git tag v1.7.0 && git push origin v1.7.0
+```
+
+The workflow runs on the tag, builds all three OSes, and attaches the installers to
+a (draft) **Releases → v1.7.0** entry — a direct download link for the `.exe`,
+`.dmg` and `.AppImage`. Publish the draft release to make the links public.
+
+> Building the Windows `.exe` on Linux/macOS needs wine; a macOS `.dmg` can only be
+> built on macOS. That is why the workflow exists.
 
 ---
 

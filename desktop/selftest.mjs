@@ -119,6 +119,10 @@ async function main() {
   const userDataDir = path.join(os.tmpdir(), "clipx-desktop-selftest");
   fs.rmSync(userDataDir, { recursive: true, force: true });
 
+  // A marker file proves non-media static assets reach the packaged workspace.
+  const marker = path.join(ROOT, "public", "desktop-selftest-marker.txt");
+  fs.writeFileSync(marker, "static asset probe\n");
+
   const first = prepareWorkspace({ appDir: ROOT, userDataDir });
   const ws = first.workspace;
   const realpath = (p) => {
@@ -136,6 +140,10 @@ async function main() {
   check(
     "node_modules linked to the app",
     realpath(path.join(ws, "node_modules")) === realpath(path.join(ROOT, "node_modules"))
+  );
+  check(
+    "static public assets reach the app",
+    fs.existsSync(path.join(ws, "public", "desktop-selftest-marker.txt"))
   );
   check(
     "media directories are writable",
@@ -193,6 +201,7 @@ async function main() {
   child.kill("SIGTERM");
   await new Promise((r) => setTimeout(r, 500));
   fs.rmSync(userDataDir, { recursive: true, force: true });
+  fs.rmSync(marker, { force: true });
 
   const failed = results.filter((r) => !r.ok).length;
   console.log(
