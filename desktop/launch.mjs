@@ -208,23 +208,41 @@ function stopAll(exitCode = 0) {
   } catch {
     /* already gone */
   }
-  if (state.server && !state.server.killed) {
-    log("Shutting down the app server…");
-    try {
-      state.server.kill("SIGTERM");
-    } catch {
-      /* ignore */
-    }
-    setTimeout(() => {
-      try {
-        state.server?.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
-      process.exit(exitCode);
-    }, 2500).unref?.();
+  const server = state.server;
+  if (!server || server.exitCode !== null || server.signalCode !== null) {
+    process.exit(exitCode);
   }
-  if (!state.server) process.exit(exitCode);
+
+  log("Shutting down the app server…");
+
+  // Stay alive until the child process is really gone. Exiting first would
+  // orphan `server.mjs`, which keeps the port bound and the clips locked.
+  let done = false;
+  let forceKill = null;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    if (forceKill) clearTimeout(forceKill);
+    process.exit(exitCode);
+  };
+
+  server.once("exit", finish);
+  server.once("error", finish);
+
+  forceKill = setTimeout(() => {
+    try {
+      server.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+    setTimeout(finish, 750);
+  }, 2500);
+
+  try {
+    server.kill("SIGTERM");
+  } catch {
+    finish();
+  }
 }
 
 async function main() {

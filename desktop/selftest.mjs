@@ -56,6 +56,25 @@ async function waitHealth(port, timeoutMs = 180_000) {
   return null;
 }
 
+function portIsFree(port, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs;
+    const attempt = () => {
+      const socket = net.connect({ port, host: "127.0.0.1" });
+      const done = (free) => {
+        socket.destroy();
+        if (free) return resolve(true);
+        if (Date.now() > deadline) return resolve(false);
+        setTimeout(attempt, 250);
+      };
+      socket.once("connect", () => done(false));
+      socket.once("error", () => done(true));
+      socket.setTimeout(1000, () => done(true));
+    };
+    attempt();
+  });
+}
+
 function runLauncherCheck() {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ["desktop/launch.mjs", "--check"], {
@@ -83,6 +102,16 @@ async function main() {
   check(
     "launcher shuts the server down again",
     /Shutting down the app server/.test(launcher.out)
+  );
+
+  // The launcher must not exit before the child is gone, otherwise the server
+  // keeps the port bound (and the window would look closed while it still runs).
+  // --check prints a pretty-printed JSON summary; scrape the port from it.
+  const reportedPort = Number((launcher.out.match(/"port":\s*(\d+)/) || [])[1]) || 0;
+  check(
+    "no orphaned server after the window closes",
+    reportedPort ? await portIsFree(reportedPort) : false,
+    reportedPort ? `port ${reportedPort} still listening` : "launcher did not report a port"
   );
 
   // ---- 2. packaged workspace ----

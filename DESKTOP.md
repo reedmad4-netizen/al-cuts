@@ -115,12 +115,13 @@ Tagging `v1.7.0` runs it automatically.
 npm run desktop:selftest
 ```
 
-14 checks, no GUI required:
+15 checks, no GUI required:
 
 ```
 launcher
   ✅ launcher starts the server and reaches health
   ✅ launcher shuts the server down again
+  ✅ no orphaned server after the window closes
 packaged workspace
   ✅ fresh install detected
   ✅ server entry copied
